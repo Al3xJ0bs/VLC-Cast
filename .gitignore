@@ -1,0 +1,25 @@
+# Build output and artifacts
+build/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.jar
+*.keystore
+*.jks
+# Test artefacts
+tests/test.jar
+tests/mocktest.jar
+tests/*.bin
+tests/venv/
+build/test-tmp/
+# Python
+__pycache__/
+*.pyc
+*.pyo
+# Local / IDE
+*.iml
+.idea/
+*.log
+.DS_Store

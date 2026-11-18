@@ -1,0 +1,130 @@
+{
+  "pair_pin_start": 1,
+  "pair_setup": [
+    "seq=1",
+    "seq=3",
+    "seq=5"
+  ],
+  "pair_verify": [
+    "seq=1",
+    "seq=3"
+  ],
+  "server_info": 0,
+  "setup": 3,
+  "record": 1,
+  "feedback": 1,
+  "play": [],
+  "rate": [],
+  "playback_info": 0,
+  "stop": 0,
+  "set_property": 0,
+  "scrub": 0,
+  "volume": 0,
+  "event_channel": 1,
+  "info": 1,
+  "rcs_setup": [],
+  "command": [],
+  "video_setup_timing": [],
+  "command_playing_event": 0,
+  "playback_info_response_event": 0,
+  "ptp": {
+    "sync": 0,
+    "followup": 0,
+    "announce": 0,
+    "delay_req": 0,
+    "delay_resp": 0,
+    "delay_resp_ok": false,
+    "followup_ok": false,
+    "announce_ok": false,
+    "sync_adv": 0,
+    "sync_gptp_ok": false,
+    "followup_tlv_ok": false,
+    "sync_clock_id": null
+  },
+  "errors": [],
+  "mirror": {
+    "fp_setup": [
+      {
+        "stage": "m1->m2",
+        "mode": 3
+      },
+      {
+        "stage": "m3->m4",
+        "mode": 3,
+        "tail_ok": true
+      }
+    ],
+    "control_setup": [
+      {
+        "sessionUUID": "ab711b7f-3cd3-4e97-a4dc-96a06d35a164",
+        "deviceID": "02:71:1B:7F:3C:D3",
+        "timingProtocol": "PTP",
+        "sourceVersion": "980.71.1",
+        "hasEkey": false,
+        "hasEiv": false
+      }
+    ],
+    "audio_setup": [
+      {
+        "ct": 8,
+        "spf": 480,
+        "sr": 44100,
+        "audioFormat": 16777216,
+        "audioMode": "default",
+        "usingScreen": true,
+        "latencyMin": 0,
+        "latencyMax": 7497,
+        "redundantAudio": 2,
+        "hasShk": true,
+        "shkLen": 32,
+        "streamConnections": true,
+        "streamConnectionsShape": "map",
+        "hasControlPort": false
+      }
+    ],
+    "video_setup": [
+      {
+        "streamConnectionID": 9211825582063597869,
+        "latencyMs": 100,
+        "timestampInfo": [
+          "SubSu",
+          "BePxT",
+          "AfPxT",
+          "BefEn",
+          "EmEnc"
+        ],
+        "shkLen": 16,
+        "shivLen": 16
+      }
+    ],
+    "record": 0,
+    "teardown": 1,
+    "feedback": 1,
+    "event_channel": 0,
+    "frames": 1,
+    "codec_frames": 1,
+    "idr_frames": 1,
+    "heartbeats": 1,
+    "first_ts": 14581005948026,
+    "last_ts": 14581005948026,
+    "ts_monotonic": true,
+    "timeline_ok": true,
+    "decrypt_ok": 1,
+    "decrypt_fail": 0,
+    "avcc_ok": 2,
+    "avcc_fail": 0,
+    "sps_len": 25,
+    "pps_len": 4,
+    "errors": [],
+    "announce_count": 2,
+    "announce_ok": true,
+    "announce_first_hex": "90d7000426ed6a1e000003166a43ebbf26ed6a1e1122334455667788",
+    "shared_secret_hex": "4a2adeed1e876a4e1752cb1d9765015d0020a1d0ef78e8340ada893c30e15c24",
+    "video_stream_id": 9211825582063597869,
+    "shared_secrets": [
+      "4a2adeed1e876a4e1752cb1d9765015d0020a1d0ef78e8340ada893c30e15c24"
+    ],
+    "codec_w": 1280,
+    "codec_h": 720
+  }
+}

@@ -1,0 +1,36 @@
+[mock] mirror audio UDP: data=57601 control=56367
+MOCK READY 7011
+[mock] mock Apple TV on 127.0.0.1:7011, PIN 1234
+[mock] POST /pair-pin-start (HTTP/1.1, 0 B, framed=False)
+[mock] POST /pair-setup (HTTP/1.1, 6 B, framed=False)
+[mock] POST /pair-setup (HTTP/1.1, 457 B, framed=False)
+[mock] SRP client proof valid: True
+[mock] POST /pair-setup (HTTP/1.1, 159 B, framed=False)
+[mock] M5 client signature OK
+[mock] connection closed: closed
+[mock] GET /info (RTSP/1.0, 0 B, framed=False)
+[mock] POST /pair-verify (HTTP/1.1, 37 B, framed=False)
+[mock] POST /pair-verify (HTTP/1.1, 125 B, framed=False)
+[mock] pair-verify M3 client signature OK
+[mock] control channel encryption enabled
+[mock] POST /fp-setup (RTSP/1.0, 16 B, framed=True)
+[mock] FairPlay SAP: m1 принят, m2 отправлен (mode 3)
+[mock] POST /fp-setup (RTSP/1.0, 164 B, framed=True)
+[mock] FairPlay SAP: m3 tail OK, m4 отправлен
+[mock] SETUP rtsp://127.0.0.1:7011/8593779146390177166 (RTSP/1.0, 567 B, framed=True)
+[mock] SETUP body: {'deviceID': '02:66:A5:66:A5:0F', 'macAddress': '02:66:A5:66:A5:0F', 'sessionUUID': 'de66a566-a50f-46bf-a401-86f5772eb960', 'sourceVersion': '980.71.1', 'isScreenMirroringSession': True, 'timingProtocol': 'PTP', 'osBuildVersion': '13F69', 'model': 'Linux', 'name': 'AirCast', 'updateSessionRequest': False, 'combinedGetInfoWithControlSetup': True, 'timingPeerInfo': {'ID': '86a8fbf1-a7e7-4a62-b893-e78a2dee2166', 'SupportsClockPortMatchingOverride': True, 'DeviceType': 0, 'Addresses': ['127.0.0.1']}, 'timingPeerList': [{'ID': '86a8fbf1-a7e7-4a62-b893-e78a2dee2166', 'SupportsClockPortMatchingOverride': True, 'DeviceType': 0, 'Addresses': ['127.0.0.1']}]}
+[mock] mirror control SETUP ok: timing=PTP, eventPort=37811, ClockID=0x1122334455667788
+[mock] SETUP rtsp://127.0.0.1:7011/8593779146390177166 (RTSP/1.0, 548 B, framed=True)
+[mock] SETUP body: {'streams': [{'type': 96, 'streamConnectionID': 8593779146390177166, 'ct': 8, 'spf': 480, 'sr': 44100, 'audioFormat': 16777216, 'audioMode': 'default', 'usingScreen': True, 'latencyMin': 0, 'latencyMax': 7497, 'redundantAudio': 2, 'streamConnections': {'streamConnectionTypeRTP': {'streamConnectionKeyUseStreamEncryptionKey': True}, 'streamConnectionTypeRTCP': {'streamConnectionKeyPort': 38935}}, 'isMedia': False, 'supportsDynamicStreamID': True, 'shk': b'#\xba\xa9\\\x80}\xedh\xda]5G\x12\xf4+\xfc\x1f\xda\x028\xd5\x16\x02S\x0f\x83zRc\xca\xdb%'}]}
+[mock] mirror audio SETUP ok (type 96 placeholder)
+[mock] SETUP rtsp://127.0.0.1:7011/1088619204599106548 (RTSP/1.0, 259 B, framed=True)
+[mock] SETUP body: {'streams': [{'type': 110, 'streamConnectionID': 1088619204599106548, 'latencyMs': 100, 'timestampInfo': [{'name': 'SubSu'}, {'name': 'BePxT'}, {'name': 'AfPxT'}, {'name': 'BefEn'}, {'name': 'EmEnc'}], 'shk': b'\xef\x10\x9c\xab!\x91\xa0#\xe8\x1bH)\x13\x00c\xd8', 'shiv': b'/\x06/iz$>\x1c\xd9\xa3\x83tYf\x1a\xd7'}]}
+[mock] mirror video SETUP ok (type 110, dataPort=41595)
+[mock] mirror data channel connected (port 41595)
+[mock] mirror data channel: probe deadbeef sent
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] TEARDOWN rtsp://127.0.0.1:7011/8593779146390177166 (RTSP/1.0, 0 B, framed=True)
+[mock] mirror data channel closed: data channel closed after 0/128 B
+[mock] connection closed: closed
+[mock] mirror: отправлен updateTimingPeerInfo
+[mock] summary written to tests/mock_summary_mirror_skip.json: {"pair_pin_start": 1, "pair_setup": ["seq=1", "seq=3", "seq=5"], "pair_verify": ["seq=1", "seq=3"], "server_info": 0, "setup": 3, "record": 0, "feedback": 1, "play": [], "rate": [], "playback_info": 0, "stop": 0, "set_property": 0, "scrub": 0, "volume": 0, "event_channel": 1, "info": 1, "rcs_setup": [], "command": [], "video_setup_timing": [], "command_playing_event": 0, "playback_info_response_event": 0, "ptp": {"sync": 0, "followup": 0, "announce": 0, "delay_req": 0, "delay_resp": 0, "delay_resp_ok": false, "followup_ok": false, "announce_ok": false, "sync_adv": 0, "sync_gptp_ok": false, "followup_tlv_ok": false, "sync_clock_id": null}, "errors": [], "mirror": {"fp_setup": [{"stage": "m1->m2", "mode": 3}, {"stage": "m3->m4", "mode": 3, "tail_ok": true}], "control_setup": [{"sessionUUID": "de66a566-a50f-46bf-a401-86f5772eb960", "deviceID": "02:66:A5:66:A5:0F", "timingProtocol": "PTP", "sourceVersion": "980.71.1", "hasEkey": false, "hasEiv": false}], "audio_setup": [{"ct": 8, "spf": 480, "sr": 44100, "audioFormat": 16777216, "audioMode": "default", "usingScreen": true, "latencyMin": 0, "latencyMax": 7497, "redundantAudio": 2, "hasShk": true, "shkLen": 32, "streamConnections": true, "streamConnectionsShape": "map", "hasControlPort": false}], "video_setup": [{"streamConnectionID": 1088619204599106548, "latencyMs": 100, "timestampInfo": ["SubSu", "BePxT", "AfPxT", "BefEn", "EmEnc"], "shkLen": 16, "shivLen": 16}], "record": 0, "teardown": 1, "feedback": 1, "event_channel": 0, "frames": 5, "codec_frames": 1, "idr_frames": 1, "heartbeats": 1, "first_ts": 14574280029240, "last_ts": 14574859849825, "ts_monotonic": true, "timeline_ok": true, "decrypt_ok": 5, "decrypt_fail": 0, "avcc_ok": 6, "avcc_fail": 0, "sps_len": 25, "pps_len": 4, "errors": [], "announce_count": 2, "announce_ok": true, "announce_first_hex": "90d70004d00abedc000003160cdd65ffd00abedc1122334455667788", "shared_secret_hex": "6ddcef80e6f500f5cc12241bc61310fb2f69f92350aca564bab4a504bb6d1516", "video_stream_id": 1088619204599106548, "shared_secrets": ["6ddcef80e6f500f5cc12241bc61310fb2f69f92350aca564bab4a504bb6d1516"], "codec_w": 1280, "codec_h": 720}}

@@ -1,0 +1,23 @@
+WARNING: An illegal reflective access operation has occurred
+WARNING: Illegal reflective access by com.intellij.util.ReflectionUtil to method java.util.ResourceBundle.setParent(java.util.ResourceBundle)
+WARNING: Please consider reporting this to the maintainers of com.intellij.util.ReflectionUtil
+WARNING: Use --illegal-access=warn to enable warnings of further illegal reflective access operations
+WARNING: All illegal access operations will be denied in a future release
+app/src/main/java/com/alexey/aircast/Bplist.kt:85:68: warning: parameter 'info' is never used
+    private fun writeMarker(out: ByteArrayOutputStream, type: Int, info: Int, count: Int) {
+                                                                   ^
+app/src/main/java/com/alexey/aircast/Bplist.kt:227:44: warning: parameter 'offsets' is never used
+    private fun readObjAt(data: ByteArray, offsets: IntArray, refSize: Int, cache: HashMap<Int, Any?>, pos: Int): Any? {
+                                           ^
+app/src/main/java/com/alexey/aircast/Bplist.kt:227:63: warning: parameter 'refSize' is never used
+    private fun readObjAt(data: ByteArray, offsets: IntArray, refSize: Int, cache: HashMap<Int, Any?>, pos: Int): Any? {
+                                                              ^
+app/src/main/java/com/alexey/aircast/Bplist.kt:227:77: warning: parameter 'cache' is never used
+    private fun readObjAt(data: ByteArray, offsets: IntArray, refSize: Int, cache: HashMap<Int, Any?>, pos: Int): Any? {
+                                                                            ^
+app/src/main/java/com/alexey/aircast/Curve25519.kt:153:36: warning: the value 'tmp' assigned to 'var x3: BigInteger defined in com.alexey.aircast.Curve25519.x25519' is never used
+            val tmp = x2; x2 = x3; x3 = tmp
+                                   ^
+app/src/main/java/com/alexey/aircast/Curve25519.kt:154:37: warning: the value 'tmp2' assigned to 'var z3: BigInteger! defined in com.alexey.aircast.Curve25519.x25519' is never used
+            val tmp2 = z2; z2 = z3; z3 = tmp2
+                                    ^

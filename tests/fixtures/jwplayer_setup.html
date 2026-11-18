@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Synthetic JWPlayer page (v0.8.1 fixture): inline sources + v2 feed URL.
+     Modeled on docs.jwplayer.com "Playlists" — playlist property may be
+     a feed URL (https://cdn.jwplayer.com/v2/playlists/{id}) instead of
+     inline sources. No real site, all hosts are example.test. -->
+<html><head><title>JWPlayer synthetic</title></head><body>
+<div id="player"></div>
+<script>
+jwplayer("player").setup({
+  playlist: [{
+    file: "https://cdn.example.test/jw/master.m3u8",
+    image: "https://cdn.example.test/poster.jpg",
+    sources: [
+      {file: "https://cdn.example.test/jw/720.mp4", type: "mp4"},
+      {file: "https://cdn.example.test/jw/master.m3u8", type: "hls"}
+    ]
+  }]
+});
+jwplayer("player2").setup({
+  playlist: "https://cdn.jwplayer.com/v2/playlists/AbC123xYz"
+});
+jwplayer("player3").setup({
+  playlist: "https://cdn.jwplayer.com/v2/media/Zz987654"
+});
+</script>
+</body></html>

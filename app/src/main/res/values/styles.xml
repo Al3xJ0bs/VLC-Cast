@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#121212</color>
+    <color name="panel">#1E1E1E</color>
+    <color name="text">#F2F2F2</color>
+    <color name="accent">#FF7A00</color>
+    <style name="AppTheme" parent="android:Theme.Material">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:colorAccent">@color/accent</item>
+    </style>
+</resources>

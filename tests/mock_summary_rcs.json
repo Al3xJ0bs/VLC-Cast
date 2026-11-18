@@ -1,0 +1,98 @@
+{
+  "pair_pin_start": 1,
+  "pair_setup": [
+    "seq=1",
+    "seq=3",
+    "seq=5"
+  ],
+  "pair_verify": [
+    "seq=1",
+    "seq=3"
+  ],
+  "server_info": 0,
+  "setup": 2,
+  "record": 1,
+  "feedback": 16,
+  "play": [
+    "http://127.0.0.1:9/test.mp4",
+    "http://127.0.0.1:9/test.mp4"
+  ],
+  "rate": [
+    "/rate?value=1.000000"
+  ],
+  "playback_info": 10,
+  "stop": 0,
+  "set_property": 4,
+  "scrub": 0,
+  "volume": 0,
+  "event_channel": 1,
+  "info": 1,
+  "rcs_setup": [
+    {
+      "code": 500,
+      "streams": [
+        {
+          "type": 130,
+          "controlType": 1,
+          "channelID": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-RCS-1",
+          "clientUUID": "565E3030-00D3-4085-A31E-EF863541039C",
+          "clientTypeUUID": "A6B27562-B43A-4F2D-B75F-82391E250194"
+        }
+      ]
+    }
+  ],
+  "command": [],
+  "video_setup_timing": [
+    "PTP"
+  ],
+  "command_playing_event": 0,
+  "playback_info_response_event": 0,
+  "ptp": {
+    "sync": 0,
+    "followup": 0,
+    "announce": 0,
+    "delay_req": 0,
+    "delay_resp": 0,
+    "delay_resp_ok": false,
+    "followup_ok": false,
+    "announce_ok": false,
+    "sync_adv": 0,
+    "sync_gptp_ok": false,
+    "followup_tlv_ok": false,
+    "sync_clock_id": null
+  },
+  "errors": [],
+  "mirror": {
+    "fp_setup": [],
+    "control_setup": [],
+    "audio_setup": [],
+    "video_setup": [],
+    "record": 0,
+    "teardown": 0,
+    "feedback": 0,
+    "event_channel": 0,
+    "frames": 0,
+    "codec_frames": 0,
+    "idr_frames": 0,
+    "heartbeats": 0,
+    "first_ts": null,
+    "last_ts": null,
+    "ts_monotonic": true,
+    "timeline_ok": true,
+    "decrypt_ok": 0,
+    "decrypt_fail": 0,
+    "avcc_ok": 0,
+    "avcc_fail": 0,
+    "sps_len": null,
+    "pps_len": null,
+    "errors": [],
+    "announce_count": 0,
+    "announce_ok": true,
+    "announce_first_hex": null,
+    "shared_secret_hex": "2571cffa7fbc61195708420b733331d19450d84bd3cd8eca03246ee8f3d39c5c",
+    "video_stream_id": null,
+    "shared_secrets": [
+      "2571cffa7fbc61195708420b733331d19450d84bd3cd8eca03246ee8f3d39c5c"
+    ]
+  }
+}

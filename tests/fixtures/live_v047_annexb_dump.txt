@@ -1,0 +1,10 @@
+Live v0.4.7 mirror dump (sliced fixture, 2026-11-10 14:59:31-15:00:15, Alexey's phone).
+Records kept, in original order: all SETUP req/resp (3+3), codec frame (1),
+first 3 video frames (IDR #1 44483 B, P #2 1096 B, P #3 628 B).
+Every video payload is Annex-B (starts 00 00 00 01) — the proven cause of the
+black screen (v0.4.8). The independent verifier MUST FAIL on this file
+(avcc_fail=3, decrypt_ok=3). The ChaCha key below is a per-session ephemeral
+key, useless after TEARDOWN (same note as the full dump summary).
+key: bb321b3111a98805022aa487ff6aed12a2f2078ad0262b813ffcc7a1ea4aa677
+clock-id: 0x48e15c43a0270008
+full dump: ~/workspace/user/files/aircast_mirror_dump_0_lqn3.bin

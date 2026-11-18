@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.alexey.aircast">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- v0.7.0: фоновый каст — foreground service + уведомления. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+
+    <application
+        android:name=".AirCastApp"
+        android:label="VLC Cast"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config">
+        <!-- v0.7.0: тап по иконке — ТОЛЬКО экран-инструкция. Никаких
+             share-фильтров здесь больше нет: share идёт в
+             ShareReceiverActivity, а MainActivity оживает только по
+             extras из уведомлений сервиса (fallback / pairing /
+             tvpick). singleTop — уведомление при открытом приложении
+             приходит в onNewIntent, а не в новый экземпляр. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- v0.7.0: прозрачный приёмник шаринга. Theme.NoDisplay —
+             у activity нет UI: она вытаскивает URL, стартует
+             CastService и сразу finish(). Пользователь остаётся
+             в Chrome, приложение не открывается. -->
+        <activity
+            android:name=".ShareReceiverActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <!-- v0.9.1: ACTION_SEND с video/* — Telegram отдаёт сам
+                 файл, а не ссылку; то же — галерея. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+        </activity>
+        <!-- v0.9.0: прозрачная activity «Поделиться логом» — из действия
+             в уведомлении «Видео не найдено» открывает системный
+             share sheet с aircast.log и сразу закрывается. -->
+        <activity
+            android:name=".LogShareActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
+        <!-- v0.9.0: провайдер для шаринга aircast.log (свой, без
+             AndroidX FileProvider — в проекте нет Gradle/AndroidX).
+             Отдаёт только filesDir/aircast.log, read-only. -->
+        <provider
+            android:name=".LogFileProvider"
+            android:authorities="com.alexey.aircast.logfile"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+        <!-- v0.7.0: фоновый каст (загрузка страницы, детект видео,
+             запуск VLC). dataSync — тип foreground service. -->
+        <service
+            android:name=".CastService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>

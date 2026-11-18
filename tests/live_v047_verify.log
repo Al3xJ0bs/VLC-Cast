@@ -1,0 +1,15 @@
+SETUP request: 570 B, keys=['combinedGetInfoWithControlSetup', 'deviceID', 'isScreenMirroringSession', 'macAddress', 'model', 'name', 'osBuildVersion', 'sessionUUID', 'sourceVersion', 'timingPeerInfo', 'timingPeerList', 'timingProtocol', 'updateSessionRequest']
+SETUP response: 2539 B, keys=['eventPort', 'info', 'skipRecord', 'timingPeerInfo']
+SETUP request: 548 B, keys=['streams'] streams[0]: type=96 streamConnectionID=6051539620238410830 dataPort=None
+SETUP response: 251 B, keys=['streams'] streams[0]: type=96 streamConnectionID=None dataPort=None
+SETUP request: 259 B, keys=['streams'] streams[0]: type=110 streamConnectionID=487257591457274726 dataPort=None
+SETUP response: 85 B, keys=['streams'] streams[0]: type=110 streamConnectionID=None dataPort=49686
+codec frame: avcC profile=66 level=40 SPS 18 B 1920x1080 VUI=True PPS 4 B
+records: codec=1 video=3 heartbeat=0 setupReq=3 setupResp=3
+video: decrypt_ok=3 decrypt_fail=0 avcc_ok=0 avcc_fail=3 idr=1
+timeline IDs seen: 0x48e15c43a0270008
+SPS: profile=66 level=40 1920x1080 VUI=True
+VERDICT: FAIL (3 problems)
+  - video frame #1: AVCC invalid: bad AVCC length 3091365887 at 5 (payload 44483 B)
+  - video frame #2: AVCC invalid: bad AVCC length 3825499960 at 5 (payload 1096 B)
+  - video frame #3: AVCC invalid: bad AVCC length 3859054392 at 5 (payload 628 B)

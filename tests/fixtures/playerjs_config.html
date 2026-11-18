@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!-- Synthetic Playerjs configs (v0.8.1 fixture), modeled on playerjs.com/docs
+     ("Выбор качества" / "Fallback sources" / "Аудиодорожки" / DLE shortcodes).
+     No real site, all hosts are example.test. -->
+<html><head><title>Playerjs synthetic</title></head><body>
+<div id="player"></div>
+<script>
+// Quality list: [label]url, comma-separated
+var player1 = new Playerjs({id:"player", file:"[480p]//cdn.example.test/v/480.mp4,[720p]//cdn.example.test/v/720.mp4"});
+// Audio tracks: {label}url, semicolon-separated
+var player2 = new Playerjs({id:"player", file:"{French}//cdn.example.test/v/fr.mp4;{English}//cdn.example.test/v/en.mp4"});
+// Fallback: "url1 or url2" ; balancing: "url1 and url2"
+var player3 = new Playerjs({id:"player", file:"//cdn.example.test/v/master.m3u8 or //cdn.example.test/v/fallback.mp4"});
+var player4 = new Playerjs({id:"player", file:"//cdn.example.test/v/a.mp4 and //cdn.example.test/v/b.mp4"});
+// DLE shortcode: ((label))url
+var player5 = new Playerjs({id:"player", file:"((480p))//cdn.example.test/v/480.mp4,((720p))//cdn.example.test/v/720.mp4"});
+// Seek suffix + group separator
+var player6 = new Playerjs({id:"player", file:"https://cdn.example.test/v/720.mp4[seek:90],[<<<First section]"});
+// Comma inside a normal URL query — must NOT split
+var player7 = new Playerjs({id:"player", file:"https://cdn.example.test/v/x.mp4?a=1,2"});
+// Plain URL, no labels
+var player8 = new Playerjs({id:"player", file:"https://cdn.example.test/v/plain.mp4"});
+// Multiple labels on one URL
+var player9 = new Playerjs({id:"player", file:"[720p]{French}//cdn.example.test/v/720fr.mp4"});
+</script>
+</body></html>

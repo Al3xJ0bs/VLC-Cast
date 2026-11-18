@@ -1,0 +1,199 @@
+{
+  "pair_pin_start": 1,
+  "pair_setup": [
+    "seq=1",
+    "seq=3",
+    "seq=5"
+  ],
+  "pair_verify": [
+    "seq=1",
+    "seq=3"
+  ],
+  "server_info": 0,
+  "setup": 2,
+  "record": 1,
+  "feedback": 0,
+  "play": [],
+  "rate": [],
+  "playback_info": 0,
+  "stop": 0,
+  "set_property": 0,
+  "scrub": 0,
+  "volume": 0,
+  "event_channel": 0,
+  "info": 1,
+  "rcs_setup": [
+    {
+      "code": 200,
+      "streams": [
+        {
+          "channelID": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-RCS-1",
+          "clientTypeUUID": "A6B27562-B43A-4F2D-B75F-82391E250194",
+          "clientUUID": "FA37BA64-A2D9-4E23-8609-544CF49EBBC5",
+          "controlType": 1,
+          "type": 130
+        }
+      ]
+    }
+  ],
+  "command": [
+    {
+      "type": "insertPlayQueueItem",
+      "code": 400,
+      "reason": "item uuid not uppercase: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "item": {
+        "Content-Location": "http://127.0.0.1:9/strict-old.mp4",
+        "IsTLSEnabled": false,
+        "Start-Position": {
+          "epoch": 0,
+          "flags": 1,
+          "timescale": 1000,
+          "value": 0
+        },
+        "clientBundleID": "dev.alexey.aircast",
+        "clientProcName": "AirCast",
+        "mediaType": "file",
+        "playbackRestrictions": 0,
+        "playerItemLoggingID": "I/PYATV.01",
+        "playerLoggingID": "P/ATV",
+        "referenceRestrictions": 2,
+        "snapTimeToPausePlayback": false,
+        "supportsIntegratedTimeline": false,
+        "uuid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+      }
+    },
+    {
+      "type": "insertPlayQueueItem",
+      "code": 200,
+      "item": {
+        "Content-Location": "http://127.0.0.1:9/strict-minimal.mp4",
+        "mediaType": "file",
+        "uuid": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+      },
+      "messageID": null
+    },
+    {
+      "type": "insertPlayQueueItem",
+      "code": 200,
+      "item": {
+        "Content-Location": "http://127.0.0.1:9/strict-full.mp4",
+        "IsTLSEnabled": false,
+        "Start-Position": {
+          "epoch": 0,
+          "flags": 1,
+          "timescale": 1,
+          "value": 0
+        },
+        "clientBundleID": "dev.alexey.aircast",
+        "clientProcName": "AirCast",
+        "mediaType": "file",
+        "playbackRestrictions": 0,
+        "playerItemLoggingID": "I/PYATV.01",
+        "playerLoggingID": "P/ATV",
+        "referenceRestrictions": 2,
+        "snapTimeToPausePlayback": false,
+        "supportsIntegratedTimeline": false,
+        "uuid": "BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF"
+      },
+      "messageID": null
+    },
+    {
+      "type": "insertPlayQueueItem",
+      "code": 400,
+      "reason": "item has unknown fields (not in #2846/#2899): ['foo']",
+      "item": {
+        "Content-Location": "http://127.0.0.1:9/strict-unknown.mp4",
+        "foo": 1,
+        "mediaType": "file",
+        "uuid": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+      }
+    },
+    {
+      "type": "insertPlayQueueItem",
+      "code": 400,
+      "reason": "item mediaType != 'file': None",
+      "item": {
+        "Content-Location": "http://127.0.0.1:9/strict-nomediatype.mp4",
+        "IsTLSEnabled": false,
+        "Start-Position": {
+          "epoch": 0,
+          "flags": 1,
+          "timescale": 1,
+          "value": 0
+        },
+        "clientBundleID": "dev.alexey.aircast",
+        "clientProcName": "AirCast",
+        "playbackRestrictions": 0,
+        "playerItemLoggingID": "I/PYATV.01",
+        "playerLoggingID": "P/ATV",
+        "referenceRestrictions": 2,
+        "snapTimeToPausePlayback": false,
+        "supportsIntegratedTimeline": false,
+        "uuid": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+      }
+    },
+    {
+      "type": "insertPlayQueueItem",
+      "code": 200,
+      "item": {
+        "Content-Location": "http://127.0.0.1:9/strict-msgid.mp4",
+        "mediaType": "file",
+        "uuid": "CCCCCCCC-DDDD-EEEE-FFFF-000000000000"
+      },
+      "messageID": 42
+    }
+  ],
+  "video_setup_timing": [
+    "PTP"
+  ],
+  "command_playing_event": 0,
+  "playback_info_response_event": 0,
+  "ptp": {
+    "sync": 0,
+    "followup": 0,
+    "announce": 0,
+    "delay_req": 0,
+    "delay_resp": 0,
+    "delay_resp_ok": false,
+    "followup_ok": false,
+    "announce_ok": false,
+    "sync_adv": 0,
+    "sync_gptp_ok": false,
+    "followup_tlv_ok": false,
+    "sync_clock_id": null
+  },
+  "errors": [],
+  "mirror": {
+    "fp_setup": [],
+    "control_setup": [],
+    "audio_setup": [],
+    "video_setup": [],
+    "record": 0,
+    "teardown": 0,
+    "feedback": 0,
+    "event_channel": 0,
+    "frames": 0,
+    "codec_frames": 0,
+    "idr_frames": 0,
+    "heartbeats": 0,
+    "first_ts": null,
+    "last_ts": null,
+    "ts_monotonic": true,
+    "timeline_ok": true,
+    "decrypt_ok": 0,
+    "decrypt_fail": 0,
+    "avcc_ok": 0,
+    "avcc_fail": 0,
+    "sps_len": null,
+    "pps_len": null,
+    "errors": [],
+    "announce_count": 0,
+    "announce_ok": true,
+    "announce_first_hex": null,
+    "shared_secret_hex": "3796d1cb79860ef129264f1035add86d046eb8183c3f4e1eeb72ba6dd235cd1d",
+    "video_stream_id": null,
+    "shared_secrets": [
+      "3796d1cb79860ef129264f1035add86d046eb8183c3f4e1eeb72ba6dd235cd1d"
+    ]
+  }
+}

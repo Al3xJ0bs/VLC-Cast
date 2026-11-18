@@ -1,0 +1,150 @@
+MOCK READY 7000
+[mock] mock Apple TV on 127.0.0.1:7000, PIN 1234
+[mock] PTP listener on UDP 319/320 + adv 32770/32771
+[mock] POST /pair-pin-start (HTTP/1.1, 0 B, framed=False)
+[mock] POST /pair-setup (HTTP/1.1, 6 B, framed=False)
+[mock] POST /pair-setup (HTTP/1.1, 457 B, framed=False)
+[mock] SRP client proof valid: True
+[mock] POST /pair-setup (HTTP/1.1, 136 B, framed=False)
+[mock] M5 client signature OK
+[mock] connection closed: closed
+[mock] POST /pair-verify (HTTP/1.1, 37 B, framed=False)
+[mock] POST /pair-verify (HTTP/1.1, 102 B, framed=False)
+[mock] pair-verify M3: BAD controller signature (wrong signed data?) -> M4 error 2
+[mock] connection closed: closed
+[mock] POST /pair-verify (HTTP/1.1, 37 B, framed=False)
+[mock] POST /pair-verify (HTTP/1.1, 102 B, framed=False)
+[mock] pair-verify M3 client signature OK
+[mock] control channel encryption enabled
+[mock] connection closed: closed
+[mock] GET /server-info (HTTP/1.1, 0 B, framed=False)
+[mock] connection closed: closed
+[mock] POST /pair-pin-start (HTTP/1.1, 0 B, framed=False)
+[mock] POST /pair-setup (HTTP/1.1, 6 B, framed=False)
+[mock] POST /pair-setup (HTTP/1.1, 457 B, framed=False)
+[mock] SRP client proof valid: True
+[mock] POST /pair-setup (HTTP/1.1, 159 B, framed=False)
+[mock] M5 client signature OK
+[mock] connection closed: closed
+[mock] POST /pair-verify (HTTP/1.1, 37 B, framed=False)
+[mock] POST /pair-verify (HTTP/1.1, 125 B, framed=False)
+[mock] pair-verify M3 client signature OK
+[mock] control channel encryption enabled
+[mock] SETUP rtsp://127.0.0.1/594282336 (RTSP/1.0, 633 B, framed=True)
+[mock] SETUP body: {'deviceID': 'AA:BB:CC:DD:EE:FF', 'macAddress': 'AA:BB:CC:DD:EE:FF', 'sessionUUID': 'D71240E1-8075-4329-AC9C-EA702567B883', 'sessionCorrelationUUID': '650B3AE8-E284-415C-9574-72249DCD796E', 'timingProtocol': 'PTP', 'timingPeerInfo': {'ID': '650B3AE8-E284-415C-9574-72249DCD796E', 'Addresses': ['127.0.0.1'], 'DeviceType': 0, 'SupportsClockPortMatchingOverride': True}, 'timingPeerList': [{'ID': '650B3AE8-E284-415C-9574-72249DCD796E', 'Addresses': ['127.0.0.1'], 'DeviceType': 0, 'SupportsClockPortMatchingOverride': True}], 'updateSessionRequest': False, 'statsCollectionEnabled': False, 'isMultiSelectAirPlay': False, 'model': 'iPhone14,3', 'name': 'AirCast', 'osName': 'iPhone OS', 'osVersion': '16.5', 'osBuildVersion': '20F66', 'sourceVersion': '690.7.1'}
+[mock] PTP: Follow_Up #0 preciseOrigin ok=True tlv ok=True
+[mock] RECORD rtsp://127.0.0.1/594282336 (RTSP/1.0, 0 B, framed=True)
+[mock] GET /info (RTSP/1.0, 0 B, framed=True)
+[mock] SETUP rtsp://127.0.0.1/594282336 (RTSP/1.0, 259 B, framed=True)
+[mock] SETUP body: {'streams': [{'type': 130, 'controlType': 1, 'channelID': 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-RCS-1', 'clientUUID': 'D96F078B-119D-461A-84FC-524E2C053876', 'clientTypeUUID': 'A6B27562-B43A-4F2D-B75F-82391E250194'}]}
+[mock] RCS SETUP ok: channelID=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-RCS-1, clientTypeUUID=A6B27562-B43A-4F2D-B75F-82391E250194
+[mock] POST /command (HTTP/1.1, 163 B, framed=True)
+[mock] /command playbackInfo: {'type': 'playbackInfo', 'kind': 'request', 'messageID': 1}
+[mock] sent nested event kind=response messageID=1
+[mock] POST /command (HTTP/1.1, 270 B, framed=True)
+[mock] /command insertPlayQueueItem: {'type': 'insertPlayQueueItem', 'item': {'uuid': '1CC59B73-792B-4B4E-972A-BB2405C9568A', 'mediaType': 'file', 'Content-Location': 'http://127.0.0.1:9/test.mp4'}}
+[mock] POST /command (HTTP/1.1, 238 B, framed=True)
+[mock] /command setProperty: {'type': 'setProperty', 'property': 'isInterestedInDateRange', 'value': True, 'item': {'uuid': '1CC59B73-792B-4B4E-972A-BB2405C9568A'}}
+[mock] POST /command (HTTP/1.1, 172 B, framed=True)
+[mock] /command setProperty: {'type': 'setProperty', 'property': 'actionAtItemEnd', 'value': 1}
+[mock] POST /command (HTTP/1.1, 143 B, framed=True)
+[mock] /command setRate: {'type': 'setRate', 'rate': 1.0}
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] sent synthetic event POST /event {state: playing}
+[mock] PTP: Sync #0 от ('127.0.0.1', 55120) (twoStep=True, gptp=True, len=44) на :319
+[mock] PTP: Delay_Req #1 → ('127.0.0.1', 55120) (попытка 1)
+[mock] PTP: Announce #0 fields ok=True
+[mock] sent nested event playbackState playing (position 1.0, duration 60.0, rate 1.0)
+[mock] PTP: Sync #1 от ('127.0.0.1', 55120) (twoStep=True, gptp=True, len=44) на :319
+[mock] PTP: Delay_Req #1 → ('127.0.0.1', 55120) (попытка 2)
+[mock] PTP: Follow_Up #1 preciseOrigin ok=True tlv ok=True
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] PTP: Sync #2 от ('127.0.0.1', 55120) (twoStep=True, gptp=True, len=44) на :319
+[mock] PTP: Delay_Req #1 → ('127.0.0.1', 55120) (попытка 3)
+[mock] PTP: Delay_Resp #1 ok=True (seq match, requestingPortIdentity match, recv ts sane)
+[mock] PTP: Sync #3 от ('127.0.0.1', 55120) (twoStep=True, gptp=True, len=44) на :319
+[mock] PTP: Follow_Up #2 preciseOrigin ok=True tlv ok=True
+[mock] connection closed: closed
+[mock] PTP: Sync #4 от ('127.0.0.1', 55120) (twoStep=True, gptp=True, len=44) на :319
+[mock] PTP: Announce #1 fields ok=True
+[mock] PTP: Delay_Resp #1 ok=True (seq match, requestingPortIdentity match, recv ts sane)
+[mock] PTP: Follow_Up #3 preciseOrigin ok=True tlv ok=True
+[mock] PTP: Delay_Resp #1 ok=False (seq match, requestingPortIdentity match, recv ts sane)
+[mock] PTP: Follow_Up #4 preciseOrigin ok=False tlv ok=True (sec=1794324339 nanos=963000000 now=1794324347)
+[mock] PTP: Announce #2 fields ok=True
+[mock] PTP: Follow_Up #0 preciseOrigin ok=True tlv ok=True
+[mock] PTP: Announce #0 fields ok=True
+[mock] PTP: Follow_Up #1 preciseOrigin ok=False tlv ok=True (sec=1794324347 nanos=377000000 now=1794324353)
+[mock] PTP: Follow_Up #2 preciseOrigin ok=False tlv ok=True (sec=1794324348 nanos=379000000 now=1794324354)
+[mock] PTP: Announce #1 fields ok=True
+[mock] PTP: Follow_Up #0 preciseOrigin ok=False tlv ok=True (sec=1794324348 nanos=686000000 now=1794324357)
+[mock] PTP: Announce #0 fields ok=True
+[mock] PTP: Follow_Up #1 preciseOrigin ok=False tlv ok=True (sec=1794324349 nanos=687000000 now=1794324360)
+[mock] PTP: Follow_Up #2 preciseOrigin ok=False tlv ok=True (sec=1794324350 nanos=688000000 now=1794324362)
+[mock] PTP: Announce #1 fields ok=True
+[mock] PTP: Follow_Up #3 preciseOrigin ok=False tlv ok=True (sec=1794324351 nanos=689000000 now=1794324365)
+[mock] PTP: Follow_Up #4 preciseOrigin ok=False tlv ok=True (sec=1794324352 nanos=690000000 now=1794324366)
+[mock] PTP: Announce #2 fields ok=True
+[mock] PTP: Follow_Up #5 preciseOrigin ok=False tlv ok=True (sec=1794324353 nanos=692000000 now=1794324369)
+[mock] PTP: Follow_Up #6 preciseOrigin ok=False tlv ok=True (sec=1794324354 nanos=693000000 now=1794324371)
+[mock] PTP: Announce #3 fields ok=True
+[mock] PTP: Follow_Up #7 preciseOrigin ok=False tlv ok=True (sec=1794324355 nanos=693000000 now=1794324374)
+[mock] PTP: Follow_Up #8 preciseOrigin ok=False tlv ok=True (sec=1794324356 nanos=694000000 now=1794324375)
+[mock] PTP: Announce #4 fields ok=True
+[mock] PTP: Follow_Up #9 preciseOrigin ok=False tlv ok=True (sec=1794324357 nanos=695000000 now=1794324378)
+[mock] PTP: Follow_Up #10 preciseOrigin ok=False tlv ok=True (sec=1794324358 nanos=696000000 now=1794324380)
+[mock] PTP: Announce #5 fields ok=True
+[mock] PTP: Follow_Up #11 preciseOrigin ok=False tlv ok=True (sec=1794324359 nanos=697000000 now=1794324383)
+[mock] PTP: Follow_Up #12 preciseOrigin ok=False tlv ok=True (sec=1794324360 nanos=698000000 now=1794324384)
+[mock] PTP: Announce #6 fields ok=True
+[mock] PTP: Follow_Up #13 preciseOrigin ok=False tlv ok=True (sec=1794324361 nanos=699000000 now=1794324387)
+[mock] PTP: Follow_Up #14 preciseOrigin ok=False tlv ok=True (sec=1794324362 nanos=699000000 now=1794324389)
+[mock] PTP: Announce #7 fields ok=True
+[mock] PTP: Follow_Up #15 preciseOrigin ok=False tlv ok=True (sec=1794324363 nanos=700000000 now=1794324392)
+[mock] PTP: Follow_Up #0 preciseOrigin ok=False tlv ok=True (sec=1794324363 nanos=982000000 now=1794324393)
+[mock] PTP: Announce #0 fields ok=True
+[mock] PTP: Follow_Up #1 preciseOrigin ok=False tlv ok=True (sec=1794324364 nanos=983000000 now=1794324396)
+[mock] PTP: Follow_Up #2 preciseOrigin ok=False tlv ok=True (sec=1794324365 nanos=985000000 now=1794324398)
+[mock] PTP: Announce #1 fields ok=True
+[mock] PTP: Follow_Up #3 preciseOrigin ok=False tlv ok=True (sec=1794324366 nanos=986000000 now=1794324401)
+[mock] PTP: Follow_Up #4 preciseOrigin ok=False tlv ok=True (sec=1794324367 nanos=987000000 now=1794324402)
+[mock] PTP: Announce #2 fields ok=True
+[mock] PTP: Follow_Up #5 preciseOrigin ok=False tlv ok=True (sec=1794324368 nanos=988000000 now=1794324405)
+[mock] PTP: Follow_Up #6 preciseOrigin ok=False tlv ok=True (sec=1794324369 nanos=989000000 now=1794324407)
+[mock] PTP: Announce #3 fields ok=True
+[mock] PTP: Follow_Up #7 preciseOrigin ok=False tlv ok=True (sec=1794324370 nanos=990000000 now=1794324410)
+[mock] PTP: Follow_Up #8 preciseOrigin ok=False tlv ok=True (sec=1794324371 nanos=991000000 now=1794324411)
+[mock] PTP: Announce #4 fields ok=True
+[mock] PTP: Follow_Up #9 preciseOrigin ok=False tlv ok=True (sec=1794324372 nanos=992000000 now=1794324414)
+[mock] PTP: Follow_Up #10 preciseOrigin ok=False tlv ok=True (sec=1794324373 nanos=993000000 now=1794324416)
+[mock] PTP: Announce #5 fields ok=True
+[mock] PTP: Follow_Up #11 preciseOrigin ok=False tlv ok=True (sec=1794324374 nanos=994000000 now=1794324419)
+[mock] PTP: Follow_Up #12 preciseOrigin ok=False tlv ok=True (sec=1794324375 nanos=994000000 now=1794324420)
+[mock] PTP: Announce #6 fields ok=True
+[mock] PTP: Follow_Up #13 preciseOrigin ok=False tlv ok=True (sec=1794324376 nanos=995000000 now=1794324423)
+[mock] PTP: Follow_Up #14 preciseOrigin ok=False tlv ok=True (sec=1794324377 nanos=996000000 now=1794324425)
+[mock] PTP: Announce #7 fields ok=True
+[mock] PTP: Follow_Up #15 preciseOrigin ok=False tlv ok=True (sec=1794324378 nanos=997000000 now=1794324428)
+[mock] PTP: Follow_Up #16 preciseOrigin ok=False tlv ok=True (sec=1794324379 nanos=998000000 now=1794324429)
+[mock] PTP: Announce #8 fields ok=True
+[mock] PTP: Follow_Up #17 preciseOrigin ok=False tlv ok=True (sec=1794324380 nanos=999000000 now=1794324432)
+[mock] PTP: Follow_Up #18 preciseOrigin ok=False tlv ok=True (sec=1794324381 nanos=999000000 now=1794324434)
+[mock] PTP: Announce #9 fields ok=True
+[mock] PTP: Follow_Up #19 preciseOrigin ok=False tlv ok=True (sec=1794324383 nanos=0 now=1794324437)
+[mock] PTP: Follow_Up #20 preciseOrigin ok=False tlv ok=True (sec=1794324384 nanos=1000000 now=1794324438)
+[mock] PTP: Announce #10 fields ok=True
+[mock] PTP: Follow_Up #21 preciseOrigin ok=False tlv ok=True (sec=1794324385 nanos=2000000 now=1794324441)
+[mock] PTP: Follow_Up #22 preciseOrigin ok=False tlv ok=True (sec=1794324386 nanos=3000000 now=1794324443)
+[mock] PTP: Announce #11 fields ok=True
+[mock] PTP: Follow_Up #23 preciseOrigin ok=False tlv ok=True (sec=1794324387 nanos=4000000 now=1794324446)
+[mock] PTP: Follow_Up #24 preciseOrigin ok=False tlv ok=True (sec=1794324388 nanos=4000000 now=1794324447)
+[mock] PTP: Announce #12 fields ok=True
+[mock] PTP: Follow_Up #25 preciseOrigin ok=False tlv ok=True (sec=1794324389 nanos=5000000 now=1794324450)
+[mock] PTP: Follow_Up #26 preciseOrigin ok=False tlv ok=True (sec=1794324390 nanos=6000000 now=1794324452)
+[mock] PTP: Announce #13 fields ok=True
+[mock] PTP: Follow_Up #27 preciseOrigin ok=False tlv ok=True (sec=1794324391 nanos=7000000 now=1794324455)
+[mock] PTP: Follow_Up #28 preciseOrigin ok=False tlv ok=True (sec=1794324392 nanos=8000000 now=1794324456)
+[mock] PTP: Announce #14 fields ok=True
+[mock] PTP: Follow_Up #29 preciseOrigin ok=False tlv ok=True (sec=1794324393 nanos=8000000 now=1794324459)
+[mock] PTP: Follow_Up #30 preciseOrigin ok=False tlv ok=True (sec=1794324394 nanos=9000000 now=1794324461)
+[mock] summary written to tests/mock_summary.json: {"pair_pin_start": 2, "pair_setup": ["seq=1", "seq=3", "seq=5", "seq=1", "seq=3", "seq=5"], "pair_verify": ["seq=1", "seq=3", "seq=1", "seq=3", "seq=1", "seq=3"], "server_info": 1, "setup": 2, "record": 1, "feedback": 2, "play": [], "rate": [], "playback_info": 0, "stop": 0, "set_property": 0, "scrub": 0, "volume": 0, "event_channel": 1, "info": 1, "rcs_setup": [{"code": 200, "streams": [{"type": 130, "controlType": 1, "channelID": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-RCS-1", "clientUUID": "D96F078B-119D-461A-84FC-524E2C053876", "clientTypeUUID": "A6B27562-B43A-4F2D-B75F-82391E250194"}]}], "command": [{"type": "playbackInfo", "code": 200, "item": null, "messageID": 1}, {"type": "insertPlayQueueItem", "code": 200, "item": {"uuid": "1CC59B73-792B-4B4E-972A-BB2405C9568A", "mediaType": "file", "Content-Location": "http://127.0.0.1:9/test.mp4"}, "messageID": null}, {"type": "setProperty", "code": 200, "item": {"uuid": "1CC59B73-792B-4B4E-972A-BB2405C9568A"}, "messageID": null}, {"type": "setProperty", "code": 200, "item": null, "messageID": null}, {"type": "setRate", "code": 200, "item": null, "messageID": null}], "video_setup_timing": ["PTP"], "command_playing_event": 1, "playback_info_response_event": 1, "ptp": {"sync": 5, "followup": 55, "announce": 28, "delay_req": 3, "delay_resp": 3, "delay_resp_ok": true, "followup_ok": true, "announce_ok": true, "sync_adv": 0, "sync_gptp_ok": true, "followup_tlv_ok": true, "sync_clock_id": "650b3ae8e284415c"}, "errors": [], "mirror": {"fp_setup": [], "control_setup": [], "audio_setup": [], "video_setup": [], "record": 0, "teardown": 0, "feedback": 0, "event_channel": 0, "frames": 0, "codec_frames": 0, "idr_frames": 0, "heartbeats": 0, "first_ts": null, "last_ts": null, "ts_monotonic": true, "timeline_ok": true, "decrypt_ok": 0, "decrypt_fail": 0, "avcc_ok": 0, "avcc_fail": 0, "sps_len": null, "pps_len": null, "errors": [], "announce_count": 0, "announce_ok": true, "announce_first_hex": null, "shared_secret_hex": "f02d06ce603eb7670055132d95625ab6106f7f79cee727f11e7913f198051415", "video_stream_id": null, "shared_secrets": ["2e42db61967131dd03f221d617d325a31f1cf84d4e296a264e85ad12ab30bb39", "f02d06ce603eb7670055132d95625ab6106f7f79cee727f11e7913f198051415"]}}

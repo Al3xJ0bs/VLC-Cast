@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<!-- Canonical player config snippets (v0.8.1 reference fixture).
+     Each snippet is the documented way its player receives a stream URL
+     (official docs: jwplayer.com, videojs.com, plyr.io, dplayer.diygod.dev,
+     artplayer.org, xgplayer, playerjs.com, hls.js, dash.js, shaka-player).
+     Synthetic hosts use example.test; the three real URLs are public demo
+     streams from the players' own docs (Mux test-streams, DASH-IF Akamai,
+     Google Shaka demo assets). No third-party streaming site. -->
+<html><head><title>Players reference</title></head><body>
+<!-- JWPlayer: setup({file}) / setup({playlist:[{file,sources}]}) -->
+<script>jwplayer("p").setup({file: "https://cdn.example.test/jw/master.m3u8"});</script>
+<!-- Video.js: videojs(el, {sources:[{src,type}]}) -->
+<video id="vjs" class="video-js"><source src="https://cdn.example.test/vjs/720.mp4" type="video/mp4"></video>
+<script>videojs("vjs", {sources: [{src: "https://cdn.example.test/vjs/master.m3u8", type: "application/x-mpegURL"}]});</script>
+<!-- Plyr: player.source = {type:'video', sources:[{src,type,size}]} -->
+<video id="plyr"></video>
+<script>var plyr = new Plyr("#plyr"); plyr.source = {type: "video", sources: [{src: "https://cdn.example.test/plyr/720.mp4", type: "video/mp4", size: 720}]};</script>
+<!-- DPlayer: new DPlayer({video:{url, quality:[{name,url}], defaultQuality}}) -->
+<div id="dplayer"></div>
+<script>var dp = new DPlayer({container: document.getElementById("dplayer"), video: {url: "https://cdn.example.test/dplayer/720.mp4", quality: [{name: "720p", url: "https://cdn.example.test/dplayer/720.mp4"}, {name: "480p", url: "https://cdn.example.test/dplayer/480.mp4"}], defaultQuality: 0}});</script>
+<!-- ArtPlayer: new Artplayer({container, url, quality:[{html,url,default}]}) -->
+<div class="artplayer-app"></div>
+<script>var art = new Artplayer({container: ".artplayer-app", url: "https://cdn.example.test/art/720.mp4", quality: [{html: "720p", url: "https://cdn.example.test/art/720.mp4", default: true}, {html: "480p", url: "https://cdn.example.test/art/480.mp4"}]});</script>
+<!-- XGPlayer: new Player({el, url, definition:{list:[{definition,url}]}}) -->
+<div id="xg"></div>
+<script>var xg = new Player({el: document.getElementById("xg"), url: "https://cdn.example.test/xg/720.mp4", definition: {list: [{definition: "720p", url: "https://cdn.example.test/xg/720.mp4"}, {definition: "480p", url: "https://cdn.example.test/xg/480.mp4"}]}});</script>
+<!-- Playerjs: new Playerjs({id, file}) -->
+<div id="pjs"></div>
+<script>var pjs = new Playerjs({id: "pjs", file: "[480p]//cdn.example.test/pjs/480.mp4,[720p]//cdn.example.test/pjs/720.mp4"});</script>
+<!-- HLS.js: hls.loadSource(url) — public demo stream from hls.js docs -->
+<video id="hls"></video>
+<script>var hls = new Hls(); hls.loadSource("https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"); hls.attachMedia(document.getElementById("hls"));</script>
+<!-- DASH.js: player.initialize(video, url, autoplay) — DASH-IF reference stream -->
+<video id="dash"></video>
+<script>var dash = dashjs.MediaPlayer().create(); dash.initialize(document.getElementById("dash"), "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd", true);</script>
+<!-- Shaka Player: player.load(manifestUri) — Google Shaka demo asset -->
+<video id="shaka"></video>
+<script>var shakaPlayer = new shaka.Player(document.getElementById("shaka")); shakaPlayer.load("https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd");</script>
+<!-- HTML5 <video>: <video src> / <source src> / data-src -->
+<video src="https://cdn.example.test/html5/720.mp4" data-src="https://cdn.example.test/html5/lazy.mp4"></video>
+</body></html>

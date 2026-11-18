@@ -1,0 +1,14 @@
+AirCast mirror stream dump — v0.4.7-mirror-prove
+date: 2026-11-17 23:02:12
+device: 127.0.0.1:7010 (MockAppleTV)
+timing: PTP, timelineID: 0x1122334455667788
+sessionUUID: ea01d4d9-91d5-48a1-b7c7-a5183afba5c5
+video streamConnectionID (requested): 552337954764465577
+audio streamConnectionID (requested): 7444693331321322635
+audio ports from TV: dataPort=40364 controlPort=33998
+video ChaCha key (hex, per-session ephemeral — for the independent verifier): 7b0161e2e7c82d9d8d00e897bfc1e53890fb3eadbf9e0eea71b245a47a574833
+SPS: 6742c01fd9005005bb01100000030010000003003c0f183248 (1280x720)
+PPS: 68ee3c80
+counts: frames=208 idr=3 codec=1 dropped=0 bytes=94119 heartbeats=26 timeAnnounces=27 rtcpInbound=0 dataInbound=1
+dump records: codec=1 video=208 heartbeat=26 setupReq=3 setupResp=3
+NOTE: the ChaCha key above is a per-session key, useless after TEARDOWN; the HAP shared secret and long-term credentials are NOT in this file. Share only with the AirCast developer.

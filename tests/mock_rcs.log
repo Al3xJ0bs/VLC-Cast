@@ -1,0 +1,57 @@
+MOCK READY 7003
+[mock] mock Apple TV on 127.0.0.1:7003, PIN 1234
+[mock] POST /pair-pin-start (HTTP/1.1, 0 B, framed=False)
+[mock] POST /pair-setup (HTTP/1.1, 6 B, framed=False)
+[mock] POST /pair-setup (HTTP/1.1, 457 B, framed=False)
+[mock] SRP client proof valid: True
+[mock] POST /pair-setup (HTTP/1.1, 159 B, framed=False)
+[mock] M5 client signature OK
+[mock] connection closed: closed
+[mock] POST /pair-verify (HTTP/1.1, 37 B, framed=False)
+[mock] POST /pair-verify (HTTP/1.1, 125 B, framed=False)
+[mock] pair-verify M3 client signature OK
+[mock] control channel encryption enabled
+[mock] SETUP rtsp://127.0.0.1/758453808 (RTSP/1.0, 633 B, framed=True)
+[mock] SETUP body: {'deviceID': 'AA:BB:CC:DD:EE:FF', 'macAddress': 'AA:BB:CC:DD:EE:FF', 'sessionUUID': '93633ACF-A0C7-4217-A4E3-1F3637C65D12', 'sessionCorrelationUUID': '879EEAAA-A242-4B06-98B9-049488D30452', 'timingProtocol': 'PTP', 'timingPeerInfo': {'ID': '879EEAAA-A242-4B06-98B9-049488D30452', 'Addresses': ['127.0.0.1'], 'DeviceType': 0, 'SupportsClockPortMatchingOverride': True}, 'timingPeerList': [{'ID': '879EEAAA-A242-4B06-98B9-049488D30452', 'Addresses': ['127.0.0.1'], 'DeviceType': 0, 'SupportsClockPortMatchingOverride': True}], 'updateSessionRequest': False, 'statsCollectionEnabled': False, 'isMultiSelectAirPlay': False, 'model': 'iPhone14,3', 'name': 'AirCast', 'osName': 'iPhone OS', 'osVersion': '16.5', 'osBuildVersion': '20F66', 'sourceVersion': '690.7.1'}
+[mock] RECORD rtsp://127.0.0.1/758453808 (RTSP/1.0, 0 B, framed=True)
+[mock] GET /info (RTSP/1.0, 0 B, framed=True)
+[mock] SETUP rtsp://127.0.0.1/758453808 (RTSP/1.0, 259 B, framed=True)
+[mock] SETUP body: {'streams': [{'type': 130, 'controlType': 1, 'channelID': 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-RCS-1', 'clientUUID': '565E3030-00D3-4085-A31E-EF863541039C', 'clientTypeUUID': 'A6B27562-B43A-4F2D-B75F-82391E250194'}]}
+[mock] RCS SETUP: --refuse-rcs → 500
+[mock] POST /play (HTTP/1.1, 628 B, framed=True)
+[mock] play body keys: ['Content-Location', 'SenderMACAddress', 'Start-Position-Seconds', 'authMs', 'bonjourMs', 'clientBundleID', 'clientProcName', 'connectMs', 'infoMs', 'mediaType', 'mightSupportStorePastisKeyRequests', 'model', 'osBuildVersion', 'playbackRestrictions', 'postAuthMs', 'rate', 'referenceRestrictions', 'secureConnectionMs', 'streamType', 'uuid', 'volume']
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] PUT /setProperty?isInterestedInDateRange (RTSP/1.0, 53 B, framed=True)
+[mock] PUT /setProperty?actionAtItemEnd (RTSP/1.0, 54 B, framed=True)
+[mock] POST /rate?value=1.000000 (RTSP/1.0, 0 B, framed=True)
+[mock] PUT /setProperty?forwardEndTime (RTSP/1.0, 89 B, framed=True)
+[mock] PUT /setProperty?reverseEndTime (RTSP/1.0, 89 B, framed=True)
+[mock] GET /playback-info (HTTP/1.1, 0 B, framed=True)
+[mock] GET /playback-info (HTTP/1.1, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] GET /playback-info (HTTP/1.1, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] GET /playback-info (HTTP/1.1, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] GET /playback-info (HTTP/1.1, 0 B, framed=True)
+[mock] POST /play (HTTP/1.1, 187 B, framed=True)
+[mock] play body keys: ['Content-Location', 'Start-Position', 'X-Apple-Session-ID']
+[mock] GET /playback-info (HTTP/1.1, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] GET /playback-info (HTTP/1.1, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] GET /playback-info (HTTP/1.1, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] GET /playback-info (HTTP/1.1, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] GET /playback-info (HTTP/1.1, 0 B, framed=True)
+[mock] connection closed: closed
+[mock] summary written to tests/mock_summary_rcs.json: {"pair_pin_start": 1, "pair_setup": ["seq=1", "seq=3", "seq=5"], "pair_verify": ["seq=1", "seq=3"], "server_info": 0, "setup": 2, "record": 1, "feedback": 16, "play": ["http://127.0.0.1:9/test.mp4", "http://127.0.0.1:9/test.mp4"], "rate": ["/rate?value=1.000000"], "playback_info": 10, "stop": 0, "set_property": 4, "scrub": 0, "volume": 0, "event_channel": 1, "info": 1, "rcs_setup": [{"code": 500, "streams": [{"type": 130, "controlType": 1, "channelID": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-RCS-1", "clientUUID": "565E3030-00D3-4085-A31E-EF863541039C", "clientTypeUUID": "A6B27562-B43A-4F2D-B75F-82391E250194"}]}], "command": [], "video_setup_timing": ["PTP"], "command_playing_event": 0, "playback_info_response_event": 0, "ptp": {"sync": 0, "followup": 0, "announce": 0, "delay_req": 0, "delay_resp": 0, "delay_resp_ok": false, "followup_ok": false, "announce_ok": false, "sync_adv": 0, "sync_gptp_ok": false, "followup_tlv_ok": false, "sync_clock_id": null}, "errors": [], "mirror": {"fp_setup": [], "control_setup": [], "audio_setup": [], "video_setup": [], "record": 0, "teardown": 0, "feedback": 0, "event_channel": 0, "frames": 0, "codec_frames": 0, "idr_frames": 0, "heartbeats": 0, "first_ts": null, "last_ts": null, "ts_monotonic": true, "timeline_ok": true, "decrypt_ok": 0, "decrypt_fail": 0, "avcc_ok": 0, "avcc_fail": 0, "sps_len": null, "pps_len": null, "errors": [], "announce_count": 0, "announce_ok": true, "announce_first_hex": null, "shared_secret_hex": "2571cffa7fbc61195708420b733331d19450d84bd3cd8eca03246ee8f3d39c5c", "video_stream_id": null, "shared_secrets": ["2571cffa7fbc61195708420b733331d19450d84bd3cd8eca03246ee8f3d39c5c"]}}

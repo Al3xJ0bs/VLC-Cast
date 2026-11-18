@@ -1,0 +1,40 @@
+MOCK READY 7002
+[mock] mock Apple TV on 127.0.0.1:7002, PIN 1234
+[mock] POST /pair-pin-start (HTTP/1.1, 0 B, framed=False)
+[mock] POST /pair-setup (HTTP/1.1, 6 B, framed=False)
+[mock] POST /pair-setup (HTTP/1.1, 457 B, framed=False)
+[mock] SRP client proof valid: True
+[mock] POST /pair-setup (HTTP/1.1, 159 B, framed=False)
+[mock] M5 client signature OK
+[mock] connection closed: closed
+[mock] POST /pair-verify (HTTP/1.1, 37 B, framed=False)
+[mock] POST /pair-verify (HTTP/1.1, 125 B, framed=False)
+[mock] pair-verify M3 client signature OK
+[mock] control channel encryption enabled
+[mock] SETUP rtsp://127.0.0.1/910349413 (RTSP/1.0, 633 B, framed=True)
+[mock] SETUP body: {'deviceID': 'AA:BB:CC:DD:EE:FF', 'macAddress': 'AA:BB:CC:DD:EE:FF', 'sessionUUID': 'C163972D-F06B-4D9B-8F20-A41B49D1604F', 'sessionCorrelationUUID': '5F2937F8-9BE4-4D0C-9F6E-94602FC4920E', 'timingProtocol': 'PTP', 'timingPeerInfo': {'ID': '5F2937F8-9BE4-4D0C-9F6E-94602FC4920E', 'Addresses': ['127.0.0.1'], 'DeviceType': 0, 'SupportsClockPortMatchingOverride': True}, 'timingPeerList': [{'ID': '5F2937F8-9BE4-4D0C-9F6E-94602FC4920E', 'Addresses': ['127.0.0.1'], 'DeviceType': 0, 'SupportsClockPortMatchingOverride': True}], 'updateSessionRequest': False, 'statsCollectionEnabled': False, 'isMultiSelectAirPlay': False, 'model': 'iPhone14,3', 'name': 'AirCast', 'osName': 'iPhone OS', 'osVersion': '16.5', 'osBuildVersion': '20F66', 'sourceVersion': '690.7.1'}
+[mock] RECORD rtsp://127.0.0.1/910349413 (RTSP/1.0, 0 B, framed=True)
+[mock] GET /info (RTSP/1.0, 0 B, framed=True)
+[mock] SETUP rtsp://127.0.0.1/910349413 (RTSP/1.0, 259 B, framed=True)
+[mock] SETUP body: {'streams': [{'type': 130, 'controlType': 1, 'channelID': 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-RCS-1', 'clientUUID': '8630389D-BE3B-4735-BB4D-77740CE2A273', 'clientTypeUUID': 'A6B27562-B43A-4F2D-B75F-82391E250194'}]}
+[mock] RCS SETUP ok: channelID=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-RCS-1, clientTypeUUID=A6B27562-B43A-4F2D-B75F-82391E250194
+[mock] POST /command (HTTP/1.1, 163 B, framed=True)
+[mock] /command playbackInfo: {'type': 'playbackInfo', 'kind': 'request', 'messageID': 1}
+[mock] POST /command (HTTP/1.1, 270 B, framed=True)
+[mock] /command insertPlayQueueItem: {'type': 'insertPlayQueueItem', 'item': {'uuid': '0088BED3-1BAE-4C70-A873-1E842B88CE08', 'mediaType': 'file', 'Content-Location': 'http://127.0.0.1:9/test.mp4'}}
+[mock] POST /command (HTTP/1.1, 238 B, framed=True)
+[mock] /command setProperty: {'type': 'setProperty', 'property': 'isInterestedInDateRange', 'value': True, 'item': {'uuid': '0088BED3-1BAE-4C70-A873-1E842B88CE08'}}
+[mock] POST /command (HTTP/1.1, 172 B, framed=True)
+[mock] /command setProperty: {'type': 'setProperty', 'property': 'actionAtItemEnd', 'value': 1}
+[mock] POST /command (HTTP/1.1, 143 B, framed=True)
+[mock] /command setRate: {'type': 'setRate', 'rate': 1.0}
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] POST /feedback (RTSP/1.0, 0 B, framed=True)
+[mock] connection closed: closed
+[mock] summary written to tests/mock_summary_500.json: {"pair_pin_start": 1, "pair_setup": ["seq=1", "seq=3", "seq=5"], "pair_verify": ["seq=1", "seq=3"], "server_info": 0, "setup": 2, "record": 1, "feedback": 8, "play": [], "rate": [], "playback_info": 0, "stop": 0, "set_property": 0, "scrub": 0, "volume": 0, "event_channel": 1, "info": 1, "rcs_setup": [{"code": 200, "streams": [{"type": 130, "controlType": 1, "channelID": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-RCS-1", "clientUUID": "8630389D-BE3B-4735-BB4D-77740CE2A273", "clientTypeUUID": "A6B27562-B43A-4F2D-B75F-82391E250194"}]}], "command": [{"type": "playbackInfo", "code": 200, "item": null, "messageID": 1}, {"type": "insertPlayQueueItem", "code": 200, "item": {"uuid": "0088BED3-1BAE-4C70-A873-1E842B88CE08", "mediaType": "file", "Content-Location": "http://127.0.0.1:9/test.mp4"}, "messageID": null}, {"type": "setProperty", "code": 200, "item": {"uuid": "0088BED3-1BAE-4C70-A873-1E842B88CE08"}, "messageID": null}, {"type": "setProperty", "code": 200, "item": null, "messageID": null}, {"type": "setRate", "code": 200, "item": null, "messageID": null}], "video_setup_timing": ["PTP"], "command_playing_event": 0, "playback_info_response_event": 0, "ptp": {"sync": 0, "followup": 0, "announce": 0, "delay_req": 0, "delay_resp": 0, "delay_resp_ok": false, "followup_ok": false, "announce_ok": false, "sync_adv": 0, "sync_gptp_ok": false, "followup_tlv_ok": false, "sync_clock_id": null}, "errors": [], "mirror": {"fp_setup": [], "control_setup": [], "audio_setup": [], "video_setup": [], "record": 0, "teardown": 0, "feedback": 0, "event_channel": 0, "frames": 0, "codec_frames": 0, "idr_frames": 0, "heartbeats": 0, "first_ts": null, "last_ts": null, "ts_monotonic": true, "timeline_ok": true, "decrypt_ok": 0, "decrypt_fail": 0, "avcc_ok": 0, "avcc_fail": 0, "sps_len": null, "pps_len": null, "errors": [], "announce_count": 0, "announce_ok": true, "announce_first_hex": null, "shared_secret_hex": "367fd559e84cdfdbedba4d0f7b28258d60a7ea75d957abaa66c626921f47291d", "video_stream_id": null, "shared_secrets": ["367fd559e84cdfdbedba4d0f7b28258d60a7ea75d957abaa66c626921f47291d"]}}
