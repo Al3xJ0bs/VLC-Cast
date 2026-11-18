@@ -1,4 +1,4 @@
-# VLC Cast v0.9.3 — самообновление в приложении + DASH + 12 одобренных фич
+# VLC Cast v0.9.3.1 — хотфикс краша при запуске 0.9.3 (самообновление + DASH + 12 одобренных фич)
 
 Android-приложение для Алексея: каст видео из браузера (YummyAnime и др.)
 на Apple TV через VLC. **Шаринг в фоне, приложение не открывается:**
@@ -14,12 +14,16 @@ Chrome → Поделиться → VLC Cast → всё происходит в 
 в разделе «Прямой каст (v0.2.0–v0.3.5)» ниже и в
 `research/direct-cast-research-2026-11-10.md`.
 
-- Пакет: `com.alexey.aircast`, версия `0.9.3` (versionCode 33)
+- Пакет: `com.alexey.aircast`, версия `0.9.3.1` (versionCode 34)
 - minSdk 26, targetSdk 34 (платформы 35/36 на этой ВМ нет — см. ниже)
 - Язык интерфейса: русский. Тёмная тема, оранжевый акцент, крупные кнопки.
 - Лицензия: AGPL-3.0 (см. `NOTICE.md` — код HAP/SRP адаптирован из
   CenturyPlay, AGPL-3.0; pyatv — MIT; FairPlay SAP и протокол зеркала —
   из doubletake, LGPL-3.0 — оба удалены в v0.6.0 вместе с зеркалом).
+
+## v0.9.3.1 — хотфикс краша при запуске 0.9.3 (2026-11-18)
+
+0.9.3 не запускалась вообще: `AppUpdater.attach` регистрировал `BroadcastReceiver` двухаргументным `registerReceiver(receiver, filter)` — на Android 13+ (API 33+) с targetSdk 33+ это обязательный `SecurityException` в `MainActivity.onCreate`. Фикс: трёхаргументный вызов с `Context.RECEIVER_NOT_EXPORTED` (приёмник внутренний, ловит только системный `ACTION_DOWNLOAD_COMPLETE` от DownloadManager). Других `registerReceiver` в проекте нет (проверено grep). Заодно: захардкоженная версия в `CrashLog` (`0.1.1-cast2`) заменена на `0.9.3.1` — крэш-экран теперь пишет актуальную версию (строка синхронизируется вручную с `MainActivity.VERSION`: CrashLog намеренно не зависит от Kotlin-классов).
 
 ## v0.9.3 — самообновление, DASH, 60fps, проверка VLC, бэкап спаривания + два хотфикса 0.9.2 (2026-11-18)
 

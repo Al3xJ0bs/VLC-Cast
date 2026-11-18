@@ -248,17 +248,25 @@ fun main() {
     // MainActivity.VERSION (единственный источник истины), поэтому
     // тест проверяет: (а) VERSION равен строке этого релиза;
     // (б) build.sh выводит version-name из MainActivity, а не хардкод;
-    // (в) --version-code равен 32. MainActivity не компилируется в
+    // (в) --version-code равен 34. MainActivity не компилируется в
     // JVM-тестах (Android-классы) — читаем исходник как текст.
     val mainActivitySrc = File("app/src/main/java/com/alexey/aircast/MainActivity.kt").readText()
     val shownVersion = Regex("const val VERSION = \"([^\"]+)\"").find(mainActivitySrc)?.groupValues?.get(1)
-    check("version-label", shownVersion == "0.9.3", "VERSION=$shownVersion")
+    check("version-label", shownVersion == "0.9.3.1", "VERSION=$shownVersion")
     val buildSh = File("build.sh").readText()
     check("version-build-derives-name", buildSh.contains("const val VERSION") && !Regex("--version-name 0\\.3").containsMatchIn(buildSh),
         "build.sh must derive --version-name from MainActivity.VERSION, not hardcode it")
-    check("version-code-33", buildSh.contains("--version-code 33"), "no --version-code 33 in build.sh")
-    check("version-code-const-33", Regex("const val VERSION_CODE = 33").containsMatchIn(mainActivitySrc),
-        "MainActivity.VERSION_CODE must be 33 (update check compares against it)")
+    check("version-code-34", buildSh.contains("--version-code 34"), "no --version-code 34 in build.sh")
+    check("version-code-const-34", Regex("const val VERSION_CODE = 34").containsMatchIn(mainActivitySrc),
+        "MainActivity.VERSION_CODE must be 34 (update check compares against it)")
+    // v0.9.3.1: краш при запуске — двухаргументный registerReceiver
+    // на Android 13+ бросает SecurityException. Статическая проверка
+    // исходника AppUpdater: флаг NOT_EXPORTED обязан быть, двухаргументной
+    // формы — не быть. JVM-тест сам вызов framework не поймает.
+    val appUpdaterSrc = File("app/src/main/java/com/alexey/aircast/AppUpdater.kt").readText()
+    check("updater-receiver-flag", appUpdaterSrc.contains("RECEIVER_NOT_EXPORTED") &&
+        !appUpdaterSrc.contains("registerReceiver(r, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))"),
+        "AppUpdater must register the download receiver with RECEIVER_NOT_EXPORTED")
     // --- v0.6.0: зеркало, мастер и ручной ввод удалены; share intent ---
     // Зеркало («вообще не интересно», его слово 2026-11-10) и мастер
     // 1-2-3 удалены из приложения полностью. Эти проверки фиксируют,

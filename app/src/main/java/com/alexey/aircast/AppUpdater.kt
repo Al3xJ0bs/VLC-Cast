@@ -117,7 +117,16 @@ class AppUpdater(private val activity: Activity) {
             }
         }
         receiver = r
-        activity.registerReceiver(r, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+        // v0.9.3.1 (ХОТФИКС краша при запуске на Android 13+, API 33+):
+        // двухаргументный registerReceiver(receiver, filter) с targetSdk 33+
+        // бросает SecurityException — обязателен флаг RECEIVER_EXPORTED или
+        // RECEIVER_NOT_EXPORTED. Здесь NOT_EXPORTED: приёмник внутренний,
+        // ловит только системный ACTION_DOWNLOAD_COMPLETE от DownloadManager,
+        // чужие broadcast'ы ему не нужны. Трёхаргументный overload есть с
+        // API 26 (= minSdk), а константа инлайнится при компиляции —
+        // ветвление по SDK_INT не нужно (тот же приём, что в androidx
+        // ContextCompat.registerReceiver).
+        activity.registerReceiver(r, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_NOT_EXPORTED)
         // Зависшая загрузка с прошлого запуска: DownloadManager живёт
         // сам, проверяем её статус сразу.
         val storedId = prefs.getLong(PREF_DOWNLOAD_ID, -1L)

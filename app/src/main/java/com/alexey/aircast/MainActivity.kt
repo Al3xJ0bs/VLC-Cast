@@ -53,9 +53,9 @@ import android.widget.Toast
  */
 class MainActivity : Activity() {
     companion object {
-        const val VERSION = "0.9.3"
+        const val VERSION = "0.9.3.1"
         /** v0.9.1: versionCode — для проверки обновлений (сравнивается с latest.json). */
-        const val VERSION_CODE = 33
+        const val VERSION_CODE = 34
         const val EXTRA_SAFE_MODE = "aircast_safe_mode"
         private const val REQ_POST_NOTIFICATIONS = 1001
         /** v0.9.3 (#27): onActivityResult — импорт файла бэкапа спаривания. */
