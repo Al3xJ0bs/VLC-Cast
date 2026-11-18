@@ -4,6 +4,22 @@
 исследования прямого каста — в
 `research/direct-cast-research-2026-11-10.md`.
 
+## v0.9.3.5 (2026-11-18)
+
+- Встроенное обновление только скачивало APK, но установку само не
+  начинало. Причина: в 0.9.3.1 краш запуска чинили флагом
+  `RECEIVER_NOT_EXPORTED` — и он же молча отрезал доставку системного
+  `ACTION_DOWNLOAD_COMPLETE` (DownloadManager — другой UID; по
+  документации Android системный broadcast требует `RECEIVER_EXPORTED`).
+  Теперь: activity-receiver с `RECEIVER_EXPORTED`, плюс
+  manifest-receiver `UpdateDownloadReceiver` (живёт, даже если
+  приложение убито mid-download), плюс re-check при запуске. Из фона
+  установка доставляется уведомлением с PendingIntent (прямой
+  `startActivity` из фона режется ограничением Android 10+). Если
+  разрешения на установку нет, а APK уже скачан — файл запоминается
+  как «ждёт установки»: после разрешения установка начинается без
+  повторного скачивания.
+
 ## v0.9.3.4 (2026-11-18)
 
 - Пробуждение спящего Apple TV: раньше был только Companion `turn_on`,

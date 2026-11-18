@@ -60,6 +60,8 @@ $KOTLINC -J-Xmx3g -cp "$AJAR" -d tests/test.jar \
   app/src/main/java/com/alexey/aircast/UpdateCheck.kt \
   app/src/main/java/com/alexey/aircast/UpdateGate.kt \
   app/src/main/java/com/alexey/aircast/AppUpdater.kt \
+  app/src/main/java/com/alexey/aircast/UpdateInstall.kt \
+  app/src/main/java/com/alexey/aircast/UpdateDownloadReceiver.kt \
   app/src/main/java/com/alexey/aircast/LocalFileCast.kt \
   app/src/main/java/com/alexey/aircast/MasterWait.kt \
   app/src/main/java/com/alexey/aircast/ResumePlaylist.kt \

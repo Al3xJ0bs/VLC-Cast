@@ -120,17 +120,26 @@ class AppUpdater(private val activity: Activity) {
         // v0.9.3.1 (ХОТФИКС краша при запуске на Android 13+, API 33+):
         // двухаргументный registerReceiver(receiver, filter) с targetSdk 33+
         // бросает SecurityException — обязателен флаг RECEIVER_EXPORTED или
-        // RECEIVER_NOT_EXPORTED. Здесь NOT_EXPORTED: приёмник внутренний,
-        // ловит только системный ACTION_DOWNLOAD_COMPLETE от DownloadManager,
-        // чужие broadcast'ы ему не нужны. Трёхаргументный overload есть с
-        // API 26 (= minSdk), а константа инлайнится при компиляции —
-        // ветвление по SDK_INT не нужно (тот же приём, что в androidx
+        // RECEIVER_NOT_EXPORTED. Трёхаргументный overload есть с API 26
+        // (= minSdk), а константа инлайнится при компиляции — ветвление
+        // по SDK_INT не нужно (тот же приём, что в androidx
         // ContextCompat.registerReceiver).
-        activity.registerReceiver(r, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_NOT_EXPORTED)
+        // v0.9.3.5 (БАГ самообновления: загрузка шла, а установка не
+        // начиналась): флаг здесь обязан быть RECEIVER_EXPORTED.
+        // В 0.9.3.1 поставили NOT_EXPORTED — краш ушёл, но receiver
+        // молча перестал получать системный ACTION_DOWNLOAD_COMPLETE
+        // (DownloadManager — другой UID; по документации Android
+        // системный broadcast требует EXPORTED). Чужой broadcast
+        // безвреден: id сверяется с сохранённым, статус — через
+        // запрос к DownloadManager (см. UpdateInstall).
+        activity.registerReceiver(r, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
         // Зависшая загрузка с прошлого запуска: DownloadManager живёт
-        // сам, проверяем её статус сразу.
+        // сам, проверяем её статус сразу. Скачанный APK, ждущий
+        // разрешения на установку, — тоже (файл уже на месте, его
+        // нельзя чистить как stale).
         val storedId = prefs.getLong(PREF_DOWNLOAD_ID, -1L)
         if (storedId != -1L) handleDownloadFinished(storedId)
+        else if (prefs.getBoolean(UpdateInstall.PREF_PENDING_INSTALL, false)) handlePendingInstall()
         else cleanupStaleApk(activity)
     }
 
@@ -146,6 +155,7 @@ class AppUpdater(private val activity: Activity) {
      * не принят (невалидный URL и т.п.).
      */
     fun startDownload(url: String, versionName: String, onStatus: (String) -> Unit): Boolean {
+        prefs.edit().remove(UpdateInstall.PREF_PENDING_INSTALL).apply()
         cleanupStaleApk(activity)
         return try {
             val req = DownloadManager.Request(Uri.parse(url)).apply {
@@ -169,77 +179,51 @@ class AppUpdater(private val activity: Activity) {
         }
     }
 
-    /** Итог загрузки по id: успех — промпт установки; провал — статус + чистка. */
+    /** Итог загрузки по id — делегирование в UpdateInstall (та же
+     * логика у manifest-receiver UpdateDownloadReceiver). */
     private fun handleDownloadFinished(id: Long) {
-        val storedId = prefs.getLong(PREF_DOWNLOAD_ID, -1L)
-        if (id != storedId) return
-        val dm = try {
-            activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        } catch (e: Exception) {
+        UpdateInstall.handleDownloadFinished(activity, id, statusCallback)
+    }
+
+    /**
+     * v0.9.3.5: скачанный APK ждёт разрешения на установку (файл уже
+     * на месте). Разрешение есть — промпт сразу; нет — один раз
+     * в настройки (после возврата установка начнётся без повторного
+     * скачивания, см. onActivityResult).
+     */
+    fun handlePendingInstall() {
+        val file = UpdateInstall.updateFile(activity)
+        if (!file.exists() || file.length() == 0L) {
+            prefs.edit().remove(UpdateInstall.PREF_PENDING_INSTALL).apply()
+            Log.add("update", "pending-install: файл пропал — флаг снят")
+            cleanupStaleApk(activity)
             return
         }
-        val status: Int
-        try {
-            dm.query(DownloadManager.Query().setFilterById(id)).use { c ->
-                if (!c.moveToFirst()) {
-                    // Загрузки с таким id больше нет (система её убрала) —
-                    // файл тоже не ждём, чистим и забываем.
-                    prefs.edit().remove(PREF_DOWNLOAD_ID).apply()
-                    cleanupStaleApk(activity)
-                    return
-                }
-                status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+        if (canRequestInstalls()) {
+            prefs.edit().remove(UpdateInstall.PREF_PENDING_INSTALL).apply()
+            resetSettingsShown()
+            Log.add("update", "pending-install: разрешение есть — промпт установки")
+            statusCallback?.invoke("Готово — открывается установка…")
+            if (!UpdateInstall.promptInstall(activity, file)) {
+                UpdateInstall.postInstallReadyNotification(activity, file)
             }
-        } catch (e: Exception) {
-            Log.add("update", "query загрузки error: ${e.javaClass.simpleName}: ${e.message}")
-            return
-        }
-        when (status) {
-            DownloadManager.STATUS_SUCCESSFUL -> {
-                prefs.edit().remove(PREF_DOWNLOAD_ID).apply()
-                val file = updateFile(activity)
-                if (!file.exists() || file.length() == 0L) {
-                    Log.add("update", "загрузка успешна, но файл пуст/отсутствует: ${file.absolutePath}")
-                    statusCallback?.invoke("Скачивание завершено, но файл повреждён. Попробуй ещё раз.")
-                    cleanupStaleApk(activity)
-                    return
-                }
-                Log.add("update", "скачано: ${file.name}, ${file.length()} Б — промпт установки")
-                statusCallback?.invoke("Готово — открывается установка…")
-                promptInstall(file)
-            }
-            DownloadManager.STATUS_FAILED -> {
-                prefs.edit().remove(PREF_DOWNLOAD_ID).apply()
-                Log.add("update", "скачивание провалено (DownloadManager STATUS_FAILED)")
-                statusCallback?.invoke("Не удалось скачать обновление. Проверь сеть и попробуй ещё раз.")
-                cleanupStaleApk(activity)
-            }
-            else -> {
-                // RUNNING / PENDING / PAUSED — ничего не делаем, ждём receiver.
-                Log.add("update", "загрузка ещё идёт (статус $status)")
-            }
+        } else if (gateDecision() == UpdateGate.Decision.OPEN_SETTINGS) {
+            Log.add("update", "pending-install: разрешения нет — один раз в настройки")
+            statusCallback?.invoke("Нужен доступ к установке из неизвестных источников — открываю настройки…")
+            openInstallSettings()
+        } else {
+            statusCallback?.invoke("Обновление скачано. Разреши установку из неизвестных источников — установка начнётся сама.")
         }
     }
 
     /**
-     * Промпт установки скачанного APK. URI — через LogFileProvider
-     * (read-only, только этот файл). Возвращает false, если промпт
-     * показать не удалось (нет установщика и т.п.).
+     * Промпт установки скачанного APK (делегирование в UpdateInstall:
+     * URI — через LogFileProvider, read-only, только этот файл).
+     * Возвращает false, если промпт показать не удалось.
      */
     fun promptInstall(file: File): Boolean {
-        return try {
-            val uri = LogFileProvider.uriForUpdateApk(activity)
-            val i = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            activity.startActivity(i)
-            Log.add("update", "промпт установки показан: ${file.name}")
-            true
-        } catch (e: Exception) {
-            Log.add("update", "промпт установки error: ${e.javaClass.simpleName}: ${e.message}")
-            statusCallback?.invoke("Не удалось открыть установку. APK — в папке приложения, попробуй ещё раз.")
-            false
-        }
+        val ok = UpdateInstall.promptInstall(activity, file)
+        if (!ok) statusCallback?.invoke("Не удалось открыть установку. APK — в папке приложения, попробуй ещё раз.")
+        return ok
     }
 }

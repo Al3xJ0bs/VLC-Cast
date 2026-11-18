@@ -101,6 +101,17 @@
             android:authorities="com.alexey.aircast.logfile"
             android:exported="false"
             android:grantUriPermissions="true" />
+        <!-- v0.9.3.5: manifest-receiver завершения загрузки обновления —
+             срабатывает, даже если приложение убито mid-download.
+             exported=true: системный broadcast от DownloadManager (другой
+             UID); id сверяется с сохранённым, чужой broadcast безвреден. -->
+        <receiver
+            android:name=".UpdateDownloadReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
         <!-- v0.7.0: фоновый каст (загрузка страницы, детект видео,
              запуск VLC). dataSync — тип foreground service. -->
         <service

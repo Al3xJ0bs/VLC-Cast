@@ -91,21 +91,25 @@ fun main() {
     // JVM-тестах (Android-классы) — читаем исходник как текст.
     val mainActivitySrc = File("app/src/main/java/com/alexey/aircast/MainActivity.kt").readText()
     val shownVersion = Regex("const val VERSION = \"([^\"]+)\"").find(mainActivitySrc)?.groupValues?.get(1)
-    check("version-label", shownVersion == "0.9.3.4", "VERSION=$shownVersion")
+    check("version-label", shownVersion == "0.9.3.5", "VERSION=$shownVersion")
     val buildSh = File("build.sh").readText()
     check("version-build-derives-name", buildSh.contains("const val VERSION") && !Regex("--version-name 0\\.3").containsMatchIn(buildSh),
         "build.sh must derive --version-name from MainActivity.VERSION, not hardcode it")
-    check("version-code-37", buildSh.contains("--version-code 37"), "no --version-code 37 in build.sh")
-    check("version-code-const-37", Regex("const val VERSION_CODE = 37").containsMatchIn(mainActivitySrc),
-        "MainActivity.VERSION_CODE must be 37 (update check compares against it)")
+    check("version-code-38", buildSh.contains("--version-code 38"), "no --version-code 38 in build.sh")
+    check("version-code-const-38", Regex("const val VERSION_CODE = 38").containsMatchIn(mainActivitySrc),
+        "MainActivity.VERSION_CODE must be 38 (update check compares against it)")
     // v0.9.3.1: краш при запуске — двухаргументный registerReceiver
     // на Android 13+ бросает SecurityException. Статическая проверка
-    // исходника AppUpdater: флаг NOT_EXPORTED обязан быть, двухаргументной
+    // исходника AppUpdater: флаг обязан быть, двухаргументной
     // формы — не быть. JVM-тест сам вызов framework не поймает.
+    // v0.9.3.5: флаг обязан быть RECEIVER_EXPORTED, а не
+    // NOT_EXPORTED: NOT_EXPORTED из 0.9.3.1 молча отрезал доставку
+    // системного ACTION_DOWNLOAD_COMPLETE (DownloadManager — другой
+    // UID), и установка после загрузки не начиналась.
     val appUpdaterSrc = File("app/src/main/java/com/alexey/aircast/AppUpdater.kt").readText()
-    check("updater-receiver-flag", appUpdaterSrc.contains("RECEIVER_NOT_EXPORTED") &&
+    check("updater-receiver-flag", appUpdaterSrc.contains("registerReceiver(r, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)") &&
         !appUpdaterSrc.contains("registerReceiver(r, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))"),
-        "AppUpdater must register the download receiver with RECEIVER_NOT_EXPORTED")
+        "AppUpdater must register the download receiver with RECEIVER_EXPORTED (NOT_EXPORTED blocks the system broadcast)")
     // v0.9.3.3 (Telegram: «Не удалось открыть файл»): копия файла —
     // В САМОЙ ShareReceiverActivity (полупрозрачная тема, живёт до
     // конца копии). Дизайн 0.9.3.2 (только форвард + finish() сразу,
@@ -1009,6 +1013,9 @@ fun main() {
     // v0.9.3.4 (Wake-on-LAN): WoL-тесты — тоже в отдельной функции
     // ниже, по той же причине (лимит кодогена на main()).
     wolTests0934()
+    // v0.9.3.5 (самообновление: скачивает, но установку не начинает):
+    // тесты фикса — в отдельной функции ниже, по той же причине.
+    updaterTests0935()
     val igHtml = """<html><head><meta property="og:video" content="https://cdn.example.test/v.mp4"><meta content="https://cdn.example.test/v2.mp4" property="og:video:secure_url"><meta name="twitter:player:stream" content="https://cdn.example.test/v3.mp4?x=1&amp;y=2"><script>{"video_url":"https:\/\/cdn.example.test\/v4.mp4"}</script></head></html>"""
     check("meta-video-urls", VideoUrls.extractMetaVideoUrls(igHtml) == listOf(
         "https://cdn.example.test/v.mp4", "https://cdn.example.test/v2.mp4",
@@ -1780,4 +1787,67 @@ fun wolTests0934() {
     val serviceSrc = File("app/src/main/java/com/alexey/aircast/CastService.kt").readText()
     check("ui-0934-log-button-notif", serviceSrc.contains("shareLog = true"),
         "the «Видео не найдено» notification must still offer share-log")
+}
+
+// v0.9.3.5 (самообновление: скачивает APK, но установку само не
+// начинает). Отдельная функция: kotlinc 1.4 падает с "wrong bytecode
+// generated" на гигантском main() (см. efgTests0933/wolTests0934).
+// JVM-тесты вызовы Android framework не исполняют — статические
+// проверки исходников: receiver, intent установки, уведомление,
+// pending-install, manifest-receiver.
+fun updaterTests0935() {
+    val manifestSrc = File("app/src/main/AndroidManifest.xml").readText()
+    val installSrc = File("app/src/main/java/com/alexey/aircast/UpdateInstall.kt").readText()
+    val receiverSrc = File("app/src/main/java/com/alexey/aircast/UpdateDownloadReceiver.kt").readText()
+    val updaterSrc = File("app/src/main/java/com/alexey/aircast/AppUpdater.kt").readText()
+    val mainSrc = File("app/src/main/java/com/alexey/aircast/MainActivity.kt").readText()
+    // 1. Manifest-receiver объявлен: exported, фильтр DOWNLOAD_COMPLETE.
+    check("updater-manifest-receiver", manifestSrc.contains("android:name=\".UpdateDownloadReceiver\"") &&
+        manifestSrc.contains("android:exported=\"true\"") &&
+        manifestSrc.contains("android.intent.action.DOWNLOAD_COMPLETE"),
+        "manifest must declare UpdateDownloadReceiver exported with DOWNLOAD_COMPLETE filter")
+    // 2. Manifest-receiver вызывает общую логику завершения загрузки.
+    check("updater-manifest-handles", receiverSrc.contains("UpdateInstall.handleDownloadFinished(context.applicationContext, id, null)") &&
+        receiverSrc.contains("DownloadManager.ACTION_DOWNLOAD_COMPLETE"),
+        "UpdateDownloadReceiver must delegate to UpdateInstall.handleDownloadFinished")
+    // 3. Activity-receiver тоже делегирует в ту же общую логику.
+    check("updater-activity-delegates", updaterSrc.contains("UpdateInstall.handleDownloadFinished(activity, id, statusCallback)"),
+        "AppUpdater.handleDownloadFinished must delegate to UpdateInstall")
+    // 4. Install-интент: ACTION_VIEW + APK MIME + grant + NEW_TASK.
+    check("updater-install-intent", installSrc.contains("Intent(Intent.ACTION_VIEW)") &&
+        installSrc.contains("\"application/vnd.android.package-archive\"") &&
+        installSrc.contains("Intent.FLAG_GRANT_READ_URI_PERMISSION") &&
+        installSrc.contains("Intent.FLAG_ACTIVITY_NEW_TASK"),
+        "promptInstall must build ACTION_VIEW + apk mime + grant + NEW_TASK")
+    // 5. Доставка из фона — уведомление с PendingIntent (BAL-exempt),
+    // на переднем плане — прямой промпт.
+    check("updater-deliver-split", installSrc.contains("fun deliverInstall(ctx: Context, file: File)") &&
+        installSrc.contains("isAppForeground(ctx)") &&
+        installSrc.contains("postInstallReadyNotification(ctx, file)"),
+        "deliverInstall must prompt in foreground and notify in background")
+    // 6. Уведомление: PendingIntent.getActivity + IMMUTABLE + install-интент.
+    check("updater-notif-pending-intent", installSrc.contains("PendingIntent.getActivity(") &&
+        installSrc.contains("PendingIntent.FLAG_IMMUTABLE") &&
+        installSrc.contains("fun postInstallReadyNotification"),
+        "install-ready notification must carry a PendingIntent with the install intent")
+    // 7. Проверка foreground — IMPORTANCE_FOREGROUND.
+    check("updater-foreground-check", installSrc.contains("ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND") &&
+        installSrc.contains("fun isAppForeground(ctx: Context)"),
+        "isAppForeground must check IMPORTANCE_FOREGROUND")
+    // 8. Pending-install: флаг, attach проверяет его до чистки stale,
+    // onActivityResult ставит установку без повторного скачивания.
+    check("updater-pending-install", installSrc.contains("PREF_PENDING_INSTALL") &&
+        updaterSrc.contains("prefs.getBoolean(UpdateInstall.PREF_PENDING_INSTALL, false)") &&
+        updaterSrc.contains("fun handlePendingInstall()") &&
+        mainSrc.contains("PREF_PENDING_INSTALL") &&
+        mainSrc.contains("updater.promptInstall(pendingFile)"),
+        "pending-install flag must survive download and resume install after settings without re-download")
+    // 9. Провал загрузки из фона — честное уведомление, а не тишина.
+    check("updater-failed-notif", installSrc.contains("fun postUpdateFailedNotification") &&
+        installSrc.contains("DownloadManager.STATUS_FAILED"),
+        "failed download must notify in background")
+    // 10. Новые файлы реально компилируются в run_tests.sh.
+    val runTestsSh = File("tests/run_tests.sh").readText()
+    check("updater-tests-compile", runTestsSh.contains("UpdateInstall.kt") && runTestsSh.contains("UpdateDownloadReceiver.kt"),
+        "run_tests.sh must compile UpdateInstall.kt and UpdateDownloadReceiver.kt")
 }

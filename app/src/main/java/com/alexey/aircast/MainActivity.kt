@@ -53,9 +53,9 @@ import android.widget.Toast
  */
 class MainActivity : Activity() {
     companion object {
-        const val VERSION = "0.9.3.4"
+        const val VERSION = "0.9.3.5"
         /** v0.9.1: versionCode — для проверки обновлений (сравнивается с latest.json). */
-        const val VERSION_CODE = 37
+        const val VERSION_CODE = 38
         const val EXTRA_SAFE_MODE = "aircast_safe_mode"
         private const val REQ_POST_NOTIFICATIONS = 1001
     }
@@ -265,7 +265,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.parseColor("#1E3A2F"))
         }
         card.addView(textView("Что нового в $VERSION", 17f, bold = true))
-        card.addView(textView("• Пробуждение спящего Apple TV починено: теперь сначала Wake-on-LAN (magic packet по MAC из ARP-кэша), потом Companion turn_on — раньше был только turn_on, а спящий ТВ его не слышит.\n• Кнопка «Поделиться логом» убрана с главного экрана — лог по-прежнему доступен из уведомления «Видео не найдено».\n• Instagram: аудио-файлы больше не кастятся вместо видео; Telegram-файл копируется в самом окне шаринга с прогрессом.", 14f))
+        card.addView(textView("• Встроенное обновление чинилось: раньше скачивание завершалось, а установка не начиналась — receiver не получал системный broadcast и умирал вместе с activity. Теперь установка начинается сама после загрузки; если приложение в фоне — уведомление «нажми, чтобы установить».\n• Пробуждение спящего Apple TV: сначала Wake-on-LAN (magic packet по MAC из ARP-кэша), потом Companion turn_on.\n• Кнопка «Поделиться логом» убрана с главного экрана — лог по-прежнему доступен из уведомления «Видео не найдено».", 14f))
         card.addView(button("Понятно") {
             prefs.edit().putString("last_seen_version", VERSION).apply()
             renderMode(AutoCast.MainMode.INSTRUCTION)
@@ -844,6 +844,17 @@ class MainActivity : Activity() {
         val updater = appUpdater ?: return
         if (updater.canRequestInstalls()) {
             updater.resetSettingsShown()
+            // v0.9.3.5: APK уже скачан и ждал разрешения — установка
+            // сразу, без повторного скачивания.
+            val pendingFile = UpdateInstall.updateFile(this)
+            if (prefs.getBoolean(UpdateInstall.PREF_PENDING_INSTALL, false) && pendingFile.exists() && pendingFile.length() > 0L) {
+                prefs.edit().remove(UpdateInstall.PREF_PENDING_INSTALL).apply()
+                setUpdateStatus("Разрешение дано — открывается установка…")
+                if (!updater.promptInstall(pendingFile)) {
+                    UpdateInstall.postInstallReadyNotification(this, pendingFile)
+                }
+                return
+            }
             val url = updater.pendingUrl()
             val name = updater.pendingName()
             if (url.isNullOrBlank()) {
