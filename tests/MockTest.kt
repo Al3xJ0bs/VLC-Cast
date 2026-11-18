@@ -80,6 +80,22 @@ fun main() {
         "respXid=$compXid summaryXid=${mIntFrom(compSum, "xid")}")
     check("mock-companion-frames", mIntFrom(compSum, "frames") >= 1, "frames=${mIntFrom(compSum, "frames")}")
 
+    // v0.9.3 (#14): FetchLaunchableApplicationsEvent — мок отдаёт _c
+    // с VLC, isVlcInstalled() == true (та же тестовая сессия).
+    val appClient = CompanionClient("127.0.0.1", 49153, testSessionKeys = compOutKey to compInKey)
+    var vlcInstalled: Boolean? = null
+    var appError: String? = null
+    try {
+        appClient.connectTestSession()
+        vlcInstalled = appClient.isVlcInstalled()
+    } catch (e: Exception) {
+        appError = "${e.javaClass.simpleName}: ${e.message}"
+        println("  companion app_list error: $appError")
+    } finally {
+        appClient.close()
+    }
+    check("mock-companion-applist-vlc", appError == null && vlcInstalled == true, "error=$appError vlc=$vlcInstalled")
+
     println(if (failures == 0) "MOCK TESTS PASSED" else "$failures MOCK TESTS FAILED")
     if (failures > 0) kotlin.system.exitProcess(1)
 }

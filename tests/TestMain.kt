@@ -8,6 +8,8 @@ import com.alexey.aircast.ChaCha20Poly1305
 import com.alexey.aircast.Curve25519
 import com.alexey.aircast.Hkdf
 import com.alexey.aircast.AutoCast
+import com.alexey.aircast.AudioCast
+import com.alexey.aircast.CastEngine
 import com.alexey.aircast.LayoutContract
 import com.alexey.aircast.Tlv8
 import com.alexey.aircast.VideoCandidate
@@ -28,6 +30,11 @@ import com.alexey.aircast.PlaybackMemory
 import com.alexey.aircast.PlaybackStore
 import com.alexey.aircast.OpenSubtitles
 import com.alexey.aircast.UpdateCheck
+import com.alexey.aircast.DashManifest
+import com.alexey.aircast.PairingBackup
+import com.alexey.aircast.HapCredentials
+import com.alexey.aircast.UpdateGate
+import com.alexey.aircast.FileShareRoute
 import com.alexey.aircast.RangeServe
 import com.alexey.aircast.TempFiles
 import com.alexey.aircast.JavaFileSource
@@ -241,17 +248,17 @@ fun main() {
     // MainActivity.VERSION (единственный источник истины), поэтому
     // тест проверяет: (а) VERSION равен строке этого релиза;
     // (б) build.sh выводит version-name из MainActivity, а не хардкод;
-    // (в) --version-code равен 31. MainActivity не компилируется в
+    // (в) --version-code равен 32. MainActivity не компилируется в
     // JVM-тестах (Android-классы) — читаем исходник как текст.
     val mainActivitySrc = File("app/src/main/java/com/alexey/aircast/MainActivity.kt").readText()
     val shownVersion = Regex("const val VERSION = \"([^\"]+)\"").find(mainActivitySrc)?.groupValues?.get(1)
-    check("version-label", shownVersion == "0.9.1", "VERSION=$shownVersion")
+    check("version-label", shownVersion == "0.9.3", "VERSION=$shownVersion")
     val buildSh = File("build.sh").readText()
     check("version-build-derives-name", buildSh.contains("const val VERSION") && !Regex("--version-name 0\\.3").containsMatchIn(buildSh),
         "build.sh must derive --version-name from MainActivity.VERSION, not hardcode it")
-    check("version-code-31", buildSh.contains("--version-code 31"), "no --version-code 31 in build.sh")
-    check("version-code-const-31", Regex("const val VERSION_CODE = 31").containsMatchIn(mainActivitySrc),
-        "MainActivity.VERSION_CODE must be 31 (update check compares against it)")
+    check("version-code-33", buildSh.contains("--version-code 33"), "no --version-code 33 in build.sh")
+    check("version-code-const-33", Regex("const val VERSION_CODE = 33").containsMatchIn(mainActivitySrc),
+        "MainActivity.VERSION_CODE must be 33 (update check compares against it)")
     // --- v0.6.0: зеркало, мастер и ручной ввод удалены; share intent ---
     // Зеркало («вообще не интересно», его слово 2026-11-10) и мастер
     // 1-2-3 удалены из приложения полностью. Эти проверки фиксируют,
@@ -1088,8 +1095,35 @@ fun main() {
     // UpdateCheck: парсинг latest.json, сравнение кодов.
     check("update-parse", UpdateCheck.parseLatest("{\"versionCode\":32,\"versionName\":\"0.9.2\",\"url\":\"https://example.test/v092.apk\"}") == UpdateCheck.Latest(32, "0.9.2", "https://example.test/v092.apk") &&
         UpdateCheck.parseLatest("{\"versionName\":\"0.9.2\"}") == null && UpdateCheck.parseLatest("garbage") == null && UpdateCheck.parseLatest(null) == null)
-    check("update-newer", UpdateCheck.isNewer(31, UpdateCheck.Latest(32, "0.9.2", "u")) && !UpdateCheck.isNewer(31, UpdateCheck.Latest(31, "0.9.1", "u")) &&
-        !UpdateCheck.isNewer(31, UpdateCheck.Latest(30, "0.9.0", "u")) && !UpdateCheck.isNewer(31, null))
+    check("update-newer", UpdateCheck.isNewer(32, UpdateCheck.Latest(33, "0.9.3", "u")) && !UpdateCheck.isNewer(32, UpdateCheck.Latest(32, "0.9.2", "u")) &&
+        !UpdateCheck.isNewer(32, UpdateCheck.Latest(31, "0.9.1", "u")) && !UpdateCheck.isNewer(32, null))
+    // v0.9.3: UpdateGate — ветвление разрешения на установку
+    // (canRequestPackageInstalls / уже отправляли в настройки).
+    check("update-gate", UpdateGate.decide(true, false) == UpdateGate.Decision.PROCEED &&
+        UpdateGate.decide(true, true) == UpdateGate.Decision.PROCEED &&
+        UpdateGate.decide(false, false) == UpdateGate.Decision.OPEN_SETTINGS &&
+        UpdateGate.decide(false, true) == UpdateGate.Decision.DENIED)
+    // v0.9.3 (хотфикс Telegram): FileShareRoute — маршрутизация
+    // интентов файлового шаринга.
+    check("fileshare-route", FileShareRoute.resolve(FileShareRoute.ACTION_FILE_WAIT, null, null, null) == FileShareRoute.Route.WAIT &&
+        FileShareRoute.resolve(FileShareRoute.ACTION_FILE_DELIVER, "/cache/x.mp4", null, null) == FileShareRoute.Route.DELIVER_PATH &&
+        FileShareRoute.resolve("com.alexey.aircast.action.CAST", "/cache/x.mp4", null, null) == FileShareRoute.Route.DELIVER_PATH &&
+        FileShareRoute.resolve("com.alexey.aircast.action.CAST", null, "content://telegram/x.mp4", null) == FileShareRoute.Route.FILE_URI &&
+        FileShareRoute.resolve("com.alexey.aircast.action.CAST", null, null, "https://example.test/p") == FileShareRoute.Route.URL &&
+        FileShareRoute.resolve("com.alexey.aircast.action.CAST", null, null, null) == FileShareRoute.Route.NONE &&
+        FileShareRoute.resolve(FileShareRoute.ACTION_FILE_DELIVER, null, "content://telegram/x.mp4", null) == FileShareRoute.Route.FILE_URI)
+    // v0.9.3 (хотфикс Instagram): extractMetaVideoUrls из сырого HTML.
+    val igHtml = """<html><head><meta property="og:video" content="https://cdn.example.test/v.mp4"><meta content="https://cdn.example.test/v2.mp4" property="og:video:secure_url"><meta name="twitter:player:stream" content="https://cdn.example.test/v3.mp4?x=1&amp;y=2"><script>{"video_url":"https:\/\/cdn.example.test\/v4.mp4"}</script></head></html>"""
+    check("meta-video-urls", VideoUrls.extractMetaVideoUrls(igHtml) == listOf(
+        "https://cdn.example.test/v.mp4", "https://cdn.example.test/v2.mp4",
+        "https://cdn.example.test/v3.mp4?x=1&y=2", "https://cdn.example.test/v4.mp4"))
+    // v0.9.3: video_url с экранированными слешами (\/) — как в сыром
+    // HTML Instagram; не-URL video_url — не кандидат.
+    check("meta-video-urls-escaped", VideoUrls.extractMetaVideoUrls("""<script>{"video_url":"https:\/\/cdn.example.test\/v.mp4"}</script>""") == listOf("https://cdn.example.test/v.mp4"))
+    check("meta-video-urls-not-url", VideoUrls.extractMetaVideoUrls("""<script>{"video_url":"12345"}</script>""").isEmpty())
+    check("meta-video-urls-login", VideoUrls.extractMetaVideoUrls("<html><head><title>Instagram</title></head><body>Войдите</body></html>").isEmpty())
+    check("meta-video-urls-blank", VideoUrls.extractMetaVideoUrls("<meta property=\"og:video\" content=\"\">").isEmpty() &&
+        VideoUrls.extractMetaVideoUrls("<meta property=\"og:video\" content=\"blob:https://x/1\">").isEmpty())
     // ResumePlaylist: обрезка до позиции (фикстура: 6 сегментов, KEY+MAP+ENDLIST).
     val hlsResume = File("tests/fixtures/hls_resume.m3u8").readText()
     val trimmed = ResumePlaylist.trim(hlsResume, 15)
@@ -1175,6 +1209,304 @@ fun main() {
         AutoCast.notifQueuedText(1) == "В очереди: 1 — запустится после текущего видео" &&
         AutoCast.notifTvUnreachableText() == "Apple TV не отвечает — проверь, включён ли он" &&
         AutoCast.notifToggleSubsText(true) == "Субтитры: вкл" && AutoCast.notifToggleSubsText(false) == "Субтитры: выкл")
+
+    // --- v0.9.2: каст музыки (аудио-детект, SoundCloud/Bandcamp/радио, YouTube Music, файлы, прокси) ---
+    check("audio-url-ext",
+        AudioCast.isAudioUrl("https://cdn.example.com/track.mp3") &&
+        AudioCast.isAudioUrl("https://cdn.example.com/track.aac") &&
+        AudioCast.isAudioUrl("https://cdn.example.com/track.flac") &&
+        AudioCast.isAudioUrl("https://cdn.example.com/track.ogg") &&
+        AudioCast.isAudioUrl("https://cdn.example.com/track.m4a") &&
+        AudioCast.isAudioUrl("https://cdn.example.com/track.wav") &&
+        AudioCast.isAudioUrl("https://cdn.example.com/track.opus"))
+    check("audio-url-not-video",
+        !AudioCast.isAudioUrl("https://cdn.example.com/video.mp4") &&
+        !AudioCast.isAudioUrl("https://cdn.example.com/stream.m3u8") &&
+        !AudioCast.isAudioUrl("https://soundcloud.com/artist/track") &&
+        !AudioCast.isAudioUrl("https://www.youtube.com/watch?v=abc"))
+    check("audio-url-services",
+        AudioCast.isAudioUrl("https://api-v2.soundcloud.com/media/soundcloud:tracks:123456/stream/hls?client_id=abc123") &&
+        AudioCast.isAudioUrl("https://cf-hls-media.sndcdn.com/media/12345/playlist.m3u8") &&
+        AudioCast.isAudioUrl("https://t4.bcbits.com/stream/abcdef/mp3-128/1234567890?p=0"))
+    check("audio-page",
+        AudioCast.isAudioPage("https://soundcloud.com/artist/track") &&
+        AudioCast.isAudioPage("https://music.youtube.com/watch?v=abc") &&
+        AudioCast.isAudioPage("https://artist.bandcamp.com/album/test") &&
+        !AudioCast.isAudioPage("https://www.youtube.com/watch?v=abc") &&
+        !AudioCast.isAudioPage("https://www.anilibria.tv/release/x.html"))
+    check("audio-unsupported",
+        AudioCast.isUnsupportedMusicService("https://open.spotify.com/track/abc") &&
+        AudioCast.isUnsupportedMusicService("https://music.apple.com/us/album/x/123") &&
+        !AudioCast.isUnsupportedMusicService("https://soundcloud.com/artist/track"))
+    check("audio-format-of",
+        VideoUrls.formatOf("https://x/track.mp3") == "mp3" &&
+        VideoUrls.formatOf("https://x/track.flac") == "flac" &&
+        VideoUrls.formatOf("https://x/track.m4a") == "m4a" &&
+        VideoUrls.formatOf("https://x/video.mp4") == "mp4")
+    check("audio-quality-label",
+        AudioCast.audioQualityLabel("https://x/track.flac") == "FLAC" &&
+        AudioCast.audioQualityLabel("https://x/track.mp3?bitrate=320") == "320 kbps" &&
+        AudioCast.audioQualityLabel("https://x/track.mp3") == "?")
+    check("audio-format-rank",
+        AutoCast.formatRank("mp3") == 2 && AutoCast.formatRank("flac") == 2 &&
+        AutoCast.qualityRank("FLAC") == 6 && AutoCast.qualityRank("320 kbps") == 5 &&
+        AutoCast.qualityRank("128 kbps") == 2)
+    check("audio-classify",
+        AutoCast.classifyUrl("https://cdn.example.com/track.mp3") == AutoCast.ShareKind.DIRECT_AUDIO &&
+        AutoCast.classifyUrl("https://cdn.example.com/video.mp4") == AutoCast.ShareKind.DIRECT_VIDEO &&
+        AutoCast.classifyUrl("https://soundcloud.com/artist/track") == AutoCast.ShareKind.PAGE)
+    // Видео в приоритете: смешанный список — первым видео; только аудио — лучшее аудио.
+    val mixedAudio = listOf(
+        VideoCandidate("https://x/a.mp3", "mp3", "128 kbps", "p", "t", isAudio = true),
+        VideoCandidate("https://x/v.mp4", "mp4", "720p", "p", "t"))
+    check("audio-pick-video-first",
+        AutoCast.orderedAttempts(mixedAudio).firstOrNull()?.url == "https://x/v.mp4")
+    val audioOnly = listOf(
+        VideoCandidate("https://x/a128.mp3", "mp3", "128 kbps", "p", "t", isAudio = true),
+        VideoCandidate("https://x/a320.mp3", "mp3", "320 kbps", "p", "t", isAudio = true))
+    check("audio-pick-audio-only",
+        AutoCast.orderedAttempts(audioOnly).firstOrNull()?.url == "https://x/a320.mp3")
+    check("audio-notif-texts",
+        AutoCast.notifProgressAudioText() == "Отправляю аудио на Apple TV…" &&
+        AutoCast.notifSuccessAudioText() == "Аудио запущено на Apple TV ✓")
+    // YouTube Music: adaptive audio из фикстуры (itag 141 — лучший).
+    val ymJson = File("tests/fixtures/youtube_music_player.json").readText()
+    val ym = YouTube.parsePlayerResponse(ymJson)
+    check("ytmusic-audio-parse",
+        ym.audio.size == 3 && ym.audio.any { it.itag == 141 } && ym.audio.any { it.itag == 251 } && ym.audio.any { it.itag == 140 })
+    check("ytmusic-pick-audio",
+        YouTube.pickAudioStream(ym)?.first?.contains("itag=141") == true)
+    val videoOnlyJson = """{"streamingData":{"adaptiveFormats":[{"bitrate":2000000,"itag":22,"mimeType":"video/mp4; codecs=\"avc1.64001F, mp4a.40.2\"","url":"https://rr1.googlevideo.com/videoplayback?itag=22"}]},"videoDetails":{"lengthSeconds":"100","title":"v"}}"""
+    check("ytmusic-pick-audio-null", YouTube.pickAudioStream(YouTube.parsePlayerResponse(videoOnlyJson)) == null)
+    // SCAN_JS v0.9.2: <audio>, SoundCloud media, Bandcamp — исходник + парсинг.
+    check("scanjs-audio",
+        extractorSrc.contains("querySelectorAll('audio')") &&
+        extractorSrc.contains("api-v2.soundcloud.com/media") &&
+        extractorSrc.contains("bcbits.com/stream") &&
+        extractorSrc.contains("audios: top.audios"))
+    val scanAudio = VideoUrls.parseScanResult("""{"videos":[],"audios":[{"src":"https://example.com/track.mp3","w":0,"h":0}],"iframes":[],"urls":[],"rel":[],"jwfeeds":[],"links":[],"subs":[],"url":"https://soundcloud.com/x","title":"t","poster":""}""")
+    check("scan-audios-parse", scanAudio.audios.size == 1 && scanAudio.audios[0].src.endsWith("track.mp3"))
+    // SoundCloud: извлечение потока из JSON media API.
+    check("soundcloud-extract",
+        AudioCast.extractSoundCloudStreamUrl("""{"url":"https://cf-hls-media.sndcdn.com/media/123/playlist.m3u8"}""") == "https://cf-hls-media.sndcdn.com/media/123/playlist.m3u8" &&
+        AudioCast.extractSoundCloudStreamUrl("{}") == null &&
+        AudioCast.extractSoundCloudStreamUrl("garbage") == null)
+    // Радио: .pls и .m3u из фикстур.
+    val pls = File("tests/fixtures/radio.pls").readText()
+    val radioM3u = File("tests/fixtures/radio.m3u").readText()
+    check("radio-pls",
+        AudioCast.isRadioPlaylistUrl("https://x/radio.pls") &&
+        AudioCast.parseRadioPlaylist(pls) == "https://stream.example-radio.fm/live.mp3")
+    check("radio-m3u",
+        AudioCast.isRadioPlaylistUrl("https://x/list.m3u") &&
+        AudioCast.parseRadioPlaylist(radioM3u) == "https://stream.example-radio.fm/live.aac" &&
+        AudioCast.parseRadioPlaylist("garbage, no urls") == null)
+    // mp3-длительность: синтетический CBR 128k/44100 (417 Б/фрейм).
+    val cbr = ByteArray(384000)
+    var cbrOff = 0
+    while (cbrOff + 417 <= cbr.size) {
+        cbr[cbrOff] = 0xFF.toByte(); cbr[cbrOff + 1] = 0xFB.toByte(); cbr[cbrOff + 2] = 0x90.toByte(); cbr[cbrOff + 3] = 0
+        cbrOff += 417
+    }
+    check("mp3-duration-cbr", AudioCast.mp3DurationSec(cbr, 384000L) == 24L)
+    val xing = ByteArray(600)
+    xing[0] = 0xFF.toByte(); xing[1] = 0xFB.toByte(); xing[2] = 0x90.toByte(); xing[3] = 0
+    "Xing".toByteArray(Charsets.US_ASCII).copyInto(xing, 36)
+    xing[43] = 1 // flags = 0x00000001 (есть счётчик фреймов)
+    xing[47] = 100 // frames = 100
+    check("mp3-duration-xing", AudioCast.mp3DurationSec(xing, 600L) == 2L)
+    check("mp3-duration-none", AudioCast.mp3DurationSec(ByteArray(1000) { 0x55 }, 1000L) == null)
+    check("mp3-frame-header",
+        AudioCast.parseMp3FrameHeader(byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte(), 0), 0)?.let { it.bitrate == 128 && it.sampleRate == 44100 && it.version == 1 } == true)
+    check("audio-file-name",
+        AudioCast.isAudioFileName("song.mp3") && AudioCast.isAudioFileName("track.FLAC") &&
+        !AudioCast.isAudioFileName("video.mp4") && !AudioCast.isAudioFileName(null))
+    // Прокси: аудио Content-Type в исходнике.
+    check("proxy-audio-types",
+        proxySrc.contains("audio/mpeg") && proxySrc.contains("audio/flac") && proxySrc.contains("audio/ogg") &&
+        proxySrc.contains("audio/mp4") && proxySrc.contains("audio/wav") && proxySrc.contains("audio/opus"))
+    // Манифест: ACTION_SEND audio/* на ShareReceiverActivity.
+    check("manifest-audio-share", shareSection.contains("audio/*"))
+    // ShareReceiverActivity: audio/* → fileCastIntent с isAudio.
+    check("share-receiver-audio",
+        shareSrc.contains("audio/") && shareSrc.contains("fileCastIntent") && shareSrc.contains("isAudio"))
+    // CastEngine: аудио-ветки в исходнике.
+    check("engine-audio",
+        engineSrc.contains("trySoundCloudMedia") && engineSrc.contains("tryRadioPlaylist") &&
+        engineSrc.contains("isAudioFlow") && engineSrc.contains("startDirectAudioFlow") &&
+        engineSrc.contains("pendingLaunchIsAudio") && engineSrc.contains("audioPage"))
+    // CastService: флаг isAudio в fileCastIntent + аудио-тексты.
+    check("service-audio",
+        serviceSrc.contains("EXTRA_FILE_IS_AUDIO") && serviceSrc.contains("notifSuccessAudioText") &&
+        serviceSrc.contains("notifProgressAudioText"))
+    // v0.9.2 (БАГ 0.9.1): шаринг файла из Telegram — копия в activity,
+    // пока grant жив; сервису — путь, а не URI.
+    check("receiver-copies-file",
+        shareSrc.contains("copySharedFile") && shareSrc.contains("openInputStream") &&
+        shareSrc.contains("TempFiles.tempName") && shareSrc.contains("filePathCastIntent") &&
+        shareSrc.contains("скопирован в activity"))
+    check("service-file-path",
+        serviceSrc.contains("EXTRA_FILE_PATH") && serviceSrc.contains("filePathCastIntent") &&
+        serviceSrc.contains("onFileError") && serviceSrc.contains("shareLog = true"))
+    check("engine-file-path",
+        engineSrc.contains("JavaFileSource(f)") && engineSrc.contains("onFileError") &&
+        engineSrc.contains("startsWith(\"/\")"))
+    // MainActivity: карточка музыки на экране-инструкции.
+    check("main-music-card", mainActivitySrc.contains("🎵") && mainActivitySrc.contains("SoundCloud"))
+    // StreamProbe: ветка .mp3 + fetchMp3DurationSec.
+    val probeSrc = File("app/src/main/java/com/alexey/aircast/StreamProbe.kt").readText()
+    check("probe-mp3", probeSrc.contains("fetchMp3DurationSec") && probeSrc.contains(".mp3"))
+    // Фикстуры аудио: SoundCloud/Bandcamp/HLS-аудио.
+    check("audio-fixtures",
+        File("tests/fixtures/soundcloud_page.html").readText().contains("api-v2.soundcloud.com/media") &&
+        File("tests/fixtures/bandcamp_page.html").readText().contains("bcbits.com/stream") &&
+        File("tests/fixtures/audio_hls.m3u8").readText().contains("cf-hls-media.sndcdn.com"))
+    // --- v0.9.2 (БАГ 0.9.1 №2): pre-check fallback, isBusy, drain при ошибке ---
+    // isBusyState — чистое решение по состоянию (JVM, без ТВ).
+    check("busy-states",
+        CastEngine.isBusyState(CastEngine.FlowState.SEARCHING_TV) &&
+        CastEngine.isBusyState(CastEngine.FlowState.LOADING_PAGE) &&
+        CastEngine.isBusyState(CastEngine.FlowState.SEARCHING_VIDEO) &&
+        CastEngine.isBusyState(CastEngine.FlowState.LAUNCHING))
+    check("busy-launched-free",
+        !CastEngine.isBusyState(CastEngine.FlowState.LAUNCHED) &&
+        !CastEngine.isBusyState(CastEngine.FlowState.IDLE) &&
+        !CastEngine.isBusyState(CastEngine.FlowState.TIMEOUT) &&
+        !CastEngine.isBusyState(CastEngine.FlowState.NEED_PAIRING))
+    // isBusy в исходнике — только через isBusyState (без launched && timer).
+    check("engine-busy-no-cap",
+        engineSrc.contains("isBusyState(flowState)") && !engineSrc.contains("launched && nextTimerRunnable"))
+    // failFlow + drainQueue: есть, и все терминальные ветки через них.
+    check("engine-failflow",
+        engineSrc.contains("private fun failFlow") && engineSrc.contains("private fun drainQueue") &&
+        engineSrc.contains("failFlow { listener.onLaunchFailed") &&
+        engineSrc.contains("failFlow { listener.onTimeout") &&
+        engineSrc.contains("failFlow { listener.onError") &&
+        engineSrc.contains("failFlow { listener.onFileError"))
+    // Pre-check fallback: probe+wake → mDNS, onTvUnreachable только если mDNS пуст.
+    check("engine-tv-fallback",
+        engineSrc.contains("fallbackToDiscovery") && engineSrc.contains("tvFallbackNone") &&
+        engineSrc.contains("fallback: ищу ТВ заново по mDNS") &&
+        engineSrc.contains("failFlow { listener.onTvUnreachable() }") &&
+        engineSrc.contains("sleep proxy"))
+    // Wake-комментарий: Companion живёт только при живом Companion.
+    val companionClientSrc = File("app/src/main/java/com/alexey/aircast/CompanionClient.kt").readText()
+    check("wake-sleep-proxy-note",
+        companionClientSrc.contains("sleep proxy") && companionClientSrc.contains("только при живом"))
+    // Уведомление «Apple TV недоступен» — с «Поделиться логом».
+    check("service-tv-unreachable-log",
+        serviceSrc.contains("notifTvUnreachableText(), AutoCast.MODE_INSTRUCTION, shareLog = true"))
+    // --- v0.9.2: источник обновлений по умолчанию (GitHub Al3xJ0bs/VLC-Cast) ---
+    check("update-default-url",
+        UpdateCheck.DEFAULT_UPDATE_URL == "https://raw.githubusercontent.com/Al3xJ0bs/VLC-Cast/main/latest.json")
+    // fetchLatestResult против локального сервера: 200 OK / 404 / мусор / обрыв.
+    val (updPort, updServer) = localHttpServer(mapOf(
+        "/latest.json" to (200 to """{"versionCode":33,"versionName":"0.9.3","url":"https://example.test/v093.apk"}"""),
+        "/bad.json" to (200 to "garbage, not json")))
+    val updBase = "http://127.0.0.1:$updPort"
+    check("update-fetch-ok",
+        UpdateCheck.fetchLatestResult("$updBase/latest.json") == UpdateCheck.FetchResult.Ok(UpdateCheck.Latest(33, "0.9.3", "https://example.test/v093.apk")))
+    check("update-fetch-wrapper",
+        UpdateCheck.fetchLatest("$updBase/latest.json") == UpdateCheck.Latest(33, "0.9.3", "https://example.test/v093.apk"))
+    check("update-fetch-404",
+        UpdateCheck.fetchLatestResult("$updBase/nope.json") == UpdateCheck.FetchResult.Unavailable)
+    check("update-fetch-bad",
+        UpdateCheck.fetchLatestResult("$updBase/bad.json") == UpdateCheck.FetchResult.Error)
+    updServer.close()
+    check("update-fetch-refused",
+        UpdateCheck.fetchLatestResult("$updBase/latest.json") == UpdateCheck.FetchResult.Error)
+    // MainActivity: URL по умолчанию без ручного ввода, 404 — честно.
+    check("main-update-default",
+        mainSrc.contains("UpdateCheck.DEFAULT_UPDATE_URL") &&
+        mainSrc.contains("Источник обновлений недоступен") &&
+        mainSrc.contains("updateCheckUrl()"))
+
+    // --- v0.9.3: DASH, 60fps, проба зеркал, VLC-check, JSON-LD, oEmbed, бэкап ---
+    // #1: DashManifest — структура, SegmentBase, кодексы, PT, null без initRange.
+    val dashV = DashManifest.Track("https://example.test/v.mp4", "video/mp4", "avc1.640028", 4_000_000L, 1920, 1080, 60, 0L, 712L, 713L, 1536L)
+    val dashA = DashManifest.Track("https://example.test/a.m4a", "audio/mp4", "mp4a.40.2", 128_000L, null, null, null, 0L, 672L, 673L, 1450L)
+    val mpd = DashManifest.build(dashV, dashA, 3723L)
+    check("dash-build", mpd != null && mpd.contains("<MPD") && mpd.contains("mediaPresentationDuration=\"PT1H2M3S\"") &&
+        mpd.contains("minBufferTime=\"PT1.5S\"") && mpd.contains("isoff-on-demand:2011") &&
+        mpd.contains("mimeType=\"video/mp4\"") && mpd.contains("codecs=\"avc1.640028\"") &&
+        mpd.contains("width=\"1920\"") && mpd.contains("height=\"1080\"") && mpd.contains("frameRate=\"60\"") &&
+        mpd.contains("<Initialization range=\"0-712\"/>") && mpd.contains("indexRange=\"713-1536\"") &&
+        mpd.contains("mimeType=\"audio/mp4\"") && mpd.contains("<BaseURL>https://example.test/v.mp4</BaseURL>") &&
+        mpd.contains("bandwidth=\"4000000\""))
+    check("dash-pt", DashManifest.ptDuration(3723L) == "PT1H2M3S" && DashManifest.ptDuration(90L) == "PT1M30S" &&
+        DashManifest.ptDuration(45L) == "PT45S" && DashManifest.ptDuration(3600L) == "PT1H0S")
+    check("dash-no-init", DashManifest.build(dashV.copy(initStart = null), dashA, 100L) == null &&
+        DashManifest.build(dashV, dashA.copy(initEnd = null), 100L) == null)
+    check("dash-no-duration", DashManifest.build(dashV, dashA, null)?.contains("mediaPresentationDuration") == false)
+    // #1: pickDashPair — лучшее видео-only (высота, fps, битрейт) + аудио по рангу itag.
+    val dashParse = YouTube.PlayerParse(null, null, emptyList(), false, "OK", 3723L,
+        audio = listOf(
+            YouTube.AudioFormat(140, "https://example.test/a140.m4a", "audio/mp4; codecs=\"mp4a.40.2\"", false, 0L, 672L, 673L, 1450L, 131072L),
+            YouTube.AudioFormat(251, "https://example.test/a251.webm", "audio/webm; codecs=\"opus\"", false, 0L, 600L, 601L, 1200L, 160000L)),
+        video = listOf(
+            YouTube.VideoAdaptiveFormat(136, "https://example.test/v136.mp4", "video/mp4; codecs=\"avc1.4d401f\"", false, 1280, 720, 30, 2_000_000L, 0L, 712L, 713L, 1536L),
+            YouTube.VideoAdaptiveFormat(137, "https://example.test/v137.mp4", "video/mp4; codecs=\"avc1.640028\"", false, 1920, 1080, 60, 8_000_000L, 0L, 712L, 713L, 1536L),
+            YouTube.VideoAdaptiveFormat(298, "https://example.test/v298.mp4", "video/mp4; codecs=\"avc1.640028\"", false, 1920, 1080, 30, 6_000_000L, 0L, 712L, 713L, 1536L),
+            YouTube.VideoAdaptiveFormat(299, null, "video/mp4; codecs=\"avc1.640028\"", true, 1920, 1080, 60, 12_000_000L, 0L, 712L, 713L, 1536L)))
+    val dashPair = YouTube.pickDashPair(dashParse)
+    check("dash-pair", dashPair != null && dashPair.video.itag == 137 && dashPair.audio.itag == 251)
+    check("dash-pair-no-init", YouTube.pickDashPair(dashParse.copy(video = listOf(
+        YouTube.VideoAdaptiveFormat(137, "https://example.test/v137.mp4", "video/mp4", false, 1920, 1080, 60, 8_000_000L, null, null, null, null)))) == null)
+    check("dash-pair-cipher-only", YouTube.pickDashPair(dashParse.copy(video = listOf(
+        YouTube.VideoAdaptiveFormat(137, null, "video/mp4", true, 1920, 1080, 60, 8_000_000L, 0L, 712L, 713L, 1536L)))) == null)
+    val pairMpd = dashPair?.let { DashManifest.build(YouTube.videoDashTrack(it.video)!!, YouTube.audioDashTrack(it.audio)!!, dashParse.lengthSeconds) }
+    check("dash-pair-mpd", pairMpd != null && pairMpd.contains("avc1.640028") && pairMpd.contains("opus") && pairMpd.contains("PT1H2M3S"))
+    // #4: fpsOf + tie-break в orderedAttempts (равный score — 60fps выше).
+    check("fps-of", VideoUrls.fpsOf("https://cdn.test/v_1080p60.mp4") == 60 &&
+        VideoUrls.fpsOf("https://cdn.test/v-720p60fps.mp4") == 60 &&
+        VideoUrls.fpsOf("https://cdn.test/v_1080p.mp4") == null &&
+        VideoUrls.fpsOf("https://cdn.test/v_1080p30.mp4") == 30 &&
+        VideoUrls.fpsOf("https://cdn.test/v_1080p120.mp4") == 120)
+    val c30 = VideoCandidate("https://a.test/v1080p30.mp4", "mp4", "1080p", "https://a.test/", "test", fps = 30)
+    val c60 = VideoCandidate("https://b.test/v1080p60.mp4", "mp4", "1080p", "https://b.test/", "test", fps = 60)
+    val fpsAttempts = AutoCast.orderedAttempts(listOf(c30, c60), 2)
+    check("fps-tiebreak", fpsAttempts.size == 2 && fpsAttempts[0].url == c60.url)
+    // #5: probeFirstByteMs — локальный сервер: 200 → число мс, 404 → null.
+    val (mpProbePort, mpProbeServer) = localHttpServer(mapOf("/v.mp4" to (200 to "x")))
+    val probeMs = StreamProbe.probeFirstByteMs("http://127.0.0.1:$mpProbePort/v.mp4", null, null)
+    check("probe-first-byte", probeMs != null && probeMs >= 0)
+    check("probe-first-byte-404", StreamProbe.probeFirstByteMs("http://127.0.0.1:$mpProbePort/nope.mp4", null, null) == null)
+    mpProbeServer.close()
+    // #14: isVlcInApps — bundle id с vlc или имя VLC.
+    check("vlc-in-apps", CompanionClient.isVlcInApps(mapOf("com.apple.tv" to "TV", "org.videolan.vlc-ios" to "VLC")) &&
+        CompanionClient.isVlcInApps(mapOf("com.example.app" to "VLC")) &&
+        !CompanionClient.isVlcInApps(mapOf("com.apple.tv" to "TV", "com.netflix.Netflix" to "Netflix")) &&
+        !CompanionClient.isVlcInApps(emptyMap()))
+    // #23: JSON-LD VideoObject — contentUrl, @graph, не-видео, страница плеера, экранирование.
+    check("jsonld-content", VideoUrls.parseJsonLdVideoObject("""{"@context":"https://schema.org","@type":"VideoObject","name":"x","contentUrl":"https://cdn.test/v.mp4"}""") == "https://cdn.test/v.mp4")
+    check("jsonld-graph", VideoUrls.parseJsonLdVideoObject("""{"@context":"https://schema.org","@graph":[{"@type":"WebPage"},{"@type":"VideoObject","embedUrl":"https://cdn.test/v.m3u8"}]}""") == "https://cdn.test/v.m3u8")
+    check("jsonld-not-video", VideoUrls.parseJsonLdVideoObject("""{"@type":"Article","contentUrl":"https://cdn.test/v.mp4"}""") == null)
+    check("jsonld-player-page", VideoUrls.parseJsonLdVideoObject("""{"@type":"VideoObject","embedUrl":"https://site.test/watch/123"}""") == null)
+    check("jsonld-escaped", VideoUrls.parseJsonLdVideoObject("""{"@type":"VideoObject","contentUrl":"https:\/\/cdn.test\/v.mp4"}""") == "https://cdn.test/v.mp4")
+    // #23/#24: parseJsonStringArray — скобки и кавычки внутри строк.
+    val jsa = VideoUrls.parseJsonStringArray("""{"jsonld":["{\"@type\":\"VideoObject\"}","a]b"],"oembed":["https://x.test/o.json"]}""", "jsonld")
+    check("json-string-array", jsa.size == 2 && jsa[0] == """{"@type":"VideoObject"}""" && jsa[1] == "a]b")
+    check("json-string-array-missing", VideoUrls.parseJsonStringArray("""{"a":[]}""", "jsonld").isEmpty())
+    // #24: oEmbed — url, iframe src из html, type=photo → null, без type — как video.
+    check("oembed-url", VideoUrls.parseOembedVideoUrl("""{"type":"video","url":"https://cdn.test/v.mp4","html":"<iframe src=\"https://cdn.test/other.mp4\"></iframe>"}""") == "https://cdn.test/v.mp4")
+    check("oembed-html", VideoUrls.parseOembedVideoUrl("""{"type":"video","html":"<iframe width=\"640\" src=\"https://cdn.test/v.m3u8\"></iframe>"}""") == "https://cdn.test/v.m3u8")
+    check("oembed-photo", VideoUrls.parseOembedVideoUrl("""{"type":"photo","url":"https://cdn.test/v.mp4"}""") == null)
+    check("oembed-no-type", VideoUrls.parseOembedVideoUrl("""{"url":"https://cdn.test/v.mp4"}""") == "https://cdn.test/v.mp4")
+    // #27: PairingBackup — round-trip + мусор.
+    val fakeCreds = HapCredentials(ByteArray(32) { 1 }, ByteArray(32) { 2 }, ByteArray(32) { 3 }, ByteArray(32) { 4 })
+    val backupText = PairingBackup.exportAll(listOf("companion:192.168.0.57" to fakeCreds.serialize(), "192.168.0.57" to fakeCreds.serialize()))
+    val parsedBackup = PairingBackup.parse(backupText)
+    check("pairing-backup-roundtrip", parsedBackup.entries.size == 2 && parsedBackup.skipped == 0 &&
+        parsedBackup.entries[0].identity == "companion:192.168.0.57" && parsedBackup.entries[0].creds.serialize() == fakeCreds.serialize())
+    val badBackup = PairingBackup.parse("# VLC Cast pairing backup v1\ncompanion:192.168.0.57\tzzz\n\nno-tab-line\ncompanion:192.168.0.57\t${fakeCreds.serialize()}\n")
+    check("pairing-backup-bad", badBackup.entries.size == 1 && badBackup.skipped == 2)
+    check("pairing-backup-empty", PairingBackup.parse(null).entries.isEmpty() && PairingBackup.parse("").entries.isEmpty())
+    // #17/#18/#20/#27: UI на месте (текстовые маркеры в MainActivity).
+    check("ui-093", mainSrc.contains("Сохранить вход (куки)") &&
+        mainSrc.contains("Самопроверка") && mainSrc.contains("runSelfCheck") &&
+        mainSrc.contains("Что нового в \$VERSION") && mainSrc.contains("last_seen_version") &&
+        mainSrc.contains("Экспорт спаривания") && mainSrc.contains("Импорт спаривания") &&
+        mainSrc.contains("REQUEST_BACKUP_IMPORT"))
 
     println(if (failures == 0) "ALL TESTS PASSED" else "$failures TESTS FAILED")
     if (failures > 0) kotlin.system.exitProcess(1)

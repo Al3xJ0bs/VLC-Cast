@@ -145,6 +145,51 @@ object YouTube {
     /** Один muxed формат (streamingData.formats — по определению muxed). */
     data class MuxedFormat(val itag: Int, val url: String?, val hasCipher: Boolean)
 
+    /**
+     * v0.9.2: один adaptive-формат (streamingData.adaptiveFormats).
+     * Для YouTube Music (music.youtube.com) muxed-форматов нет вообще —
+     * только adaptive: видео-only и аудио-only (mimeType audio/...).
+     * itag аудио: 141 (m4a 256k), 251 (opus 160k), 140 (m4a 128k),
+     * 171 (webm 128k), 250/249 (opus 70k/50k), 139 (m4a 48k).
+     */
+    data class AudioFormat(
+        val itag: Int,
+        val url: String?,
+        val mimeType: String?,
+        val hasCipher: Boolean,
+        /** v0.9.3 (#1): initRange/indexRange для DASH-пары (SegmentBase). */
+        val initStart: Long? = null,
+        val initEnd: Long? = null,
+        val indexStart: Long? = null,
+        val indexEnd: Long? = null,
+        /** v0.9.3 (#1): битрейт (для bandwidth в MPD). */
+        val bitrate: Long? = null,
+    )
+
+    /**
+     * v0.9.3 (#1): один adaptive-формат video-only (streamingData.
+     * adaptiveFormats, mimeType video/...). Пара video+audio — для
+     * синтеза локального .mpd (DashManifest), когда ни HLS, ни muxed
+     * не дали одиночного потока.
+     */
+    data class VideoAdaptiveFormat(
+        val itag: Int,
+        val url: String?,
+        val mimeType: String?,
+        val hasCipher: Boolean,
+        val width: Int? = null,
+        val height: Int? = null,
+        val fps: Int? = null,
+        val bitrate: Long? = null,
+        val initStart: Long? = null,
+        val initEnd: Long? = null,
+        val indexStart: Long? = null,
+        val indexEnd: Long? = null,
+    )
+
+    /** v0.9.3 (#1): пара для синтеза DASH (видео + аудио). */
+    data class DashPair(val video: VideoAdaptiveFormat, val audio: AudioFormat)
+
     data class PlayerParse(
         val hlsUrl: String?,
         val dashUrl: String?,
@@ -156,6 +201,10 @@ object YouTube {
         /** v0.9.0: videoDetails.lengthSeconds — длительность для
          *  авто-следующей серии (таймер конца воспроизведения). */
         val lengthSeconds: Long? = null,
+        /** v0.9.2: аудио-only adaptive-форматы (YouTube Music). */
+        val audio: List<AudioFormat> = emptyList(),
+        /** v0.9.3 (#1): видео-only adaptive-форматы (для DASH-пары). */
+        val video: List<VideoAdaptiveFormat> = emptyList(),
     )
 
     private val HLS_RE = Regex(""""hlsManifestUrl"\s*:\s*"((?:[^"\\]|\\.)*)"""")
@@ -165,7 +214,21 @@ object YouTube {
     private val PLAYABILITY_RE = Regex(""""playabilityStatus"\s*:\s*\{\s*"status"\s*:\s*"([^"]+)"""")
     private val FORMAT_OBJ_RE = Regex("""\{[^{}]*"itag"\s*:\s*(\d+)[^{}]*\}""")
     private val URL_IN_OBJ_RE = Regex(""""url"\s*:\s*"((?:[^"\\]|\\.)*)"""")
+    private val MIME_IN_OBJ_RE = Regex(""""mimeType"\s*:\s*"((?:[^"\\]|\\.)*)"""")
+    private val ITAG_IN_OBJ_RE = Regex(""""itag"\s*:\s*(\d+)""")
     private val CIPHER_IN_OBJ_RE = Regex(""""signatureCipher"\s*:""")
+    /** v0.9.3 (#1): поля adaptive-форматов для DASH-пары. */
+    private val WIDTH_RE = Regex(""""width"\s*:\s*(\d+)""")
+    private val HEIGHT_RE = Regex(""""height"\s*:\s*(\d+)""")
+    private val FPS_RE = Regex(""""fps"\s*:\s*(\d+)""")
+    private val BITRATE_RE = Regex(""""bitrate"\s*:\s*(\d+)""")
+    private val CODECS_RE = Regex("""codecs="([^"]+)"""")
+
+    /** initRange/indexRange объекта adaptive-формата (start,end) или null,null. */
+    private fun rangeOf(obj: String, name: String): Pair<Long?, Long?> {
+        val m = Regex(String.format("\"%s\"\\s*:\\s*\\{\\s*\"start\"\\s*:\\s*\"(\\d+)\"\\s*,\\s*\"end\"\\s*:\\s*\"(\\d+)\"\\s*\\}", name)).find(obj) ?: return null to null
+        return m.groupValues[1].toLongOrNull() to m.groupValues[2].toLongOrNull()
+    }
 
     /** visitorData из HTML/JSON watch-страницы (ytInitialPlayerResponse). */
     fun parseVisitorData(text: String?): String? {
@@ -205,7 +268,36 @@ object YouTube {
             }
         }
         val hasOnlyCipher = muxed.isNotEmpty() && muxed.none { it.url != null }
-        return PlayerParse(hls, dash, muxed, hasOnlyCipher, playability, lengthSeconds)
+        // v0.9.2: adaptiveFormats — для YouTube Music там только аудио
+        // (и видео-only). Объекты с вложенными initRange/indexRange —
+        // FORMAT_OBJ_RE их не берёт, поэтому режем массив на объекты
+        // по балансу скобок (splitTopObjects) и берём только audio/*.
+        // v0.9.3 (#1): video-only — тоже, с width/height/fps/bitrate
+        // и initRange/indexRange (для синтеза локального .mpd).
+        val audio = ArrayList<AudioFormat>()
+        val video = ArrayList<VideoAdaptiveFormat>()
+        val adaptiveArr = extractArray(sd, "\"adaptiveFormats\"")
+        if (adaptiveArr != null) {
+            for (obj in splitTopObjects(adaptiveArr)) {
+                val itag = ITAG_IN_OBJ_RE.find(obj)?.groupValues?.get(1)?.toIntOrNull() ?: continue
+                val url = URL_IN_OBJ_RE.find(obj)?.groupValues?.get(1)?.let { unescape(it) }
+                val mime = MIME_IN_OBJ_RE.find(obj)?.groupValues?.get(1)?.let { unescape(it) }
+                val hasCipher = CIPHER_IN_OBJ_RE.containsMatchIn(obj)
+                val (initStart, initEnd) = rangeOf(obj, "initRange")
+                val (indexStart, indexEnd) = rangeOf(obj, "indexRange")
+                if (mime?.contains("audio/") == true) {
+                    val bitrate = BITRATE_RE.find(obj)?.groupValues?.get(1)?.toLongOrNull()
+                    audio.add(AudioFormat(itag, url?.takeIf { it.isNotBlank() }, mime, hasCipher, initStart, initEnd, indexStart, indexEnd, bitrate))
+                } else if (mime?.contains("video/") == true) {
+                    val width = WIDTH_RE.find(obj)?.groupValues?.get(1)?.toIntOrNull()
+                    val height = HEIGHT_RE.find(obj)?.groupValues?.get(1)?.toIntOrNull()
+                    val fps = FPS_RE.find(obj)?.groupValues?.get(1)?.toIntOrNull()
+                    val bitrate = BITRATE_RE.find(obj)?.groupValues?.get(1)?.toLongOrNull()
+                    video.add(VideoAdaptiveFormat(itag, url?.takeIf { it.isNotBlank() }, mime, hasCipher, width, height, fps, bitrate, initStart, initEnd, indexStart, indexEnd))
+                }
+            }
+        }
+        return PlayerParse(hls, dash, muxed, hasOnlyCipher, playability, lengthSeconds, audio, video)
     }
 
     /** Лучший одиночный поток для VLC: HLS, затем лучший muxed mp4, затем DASH. */
@@ -215,6 +307,107 @@ object YouTube {
         if (best?.url != null) return best.url to "mp4"
         if (parse.dashUrl != null) return parse.dashUrl to "mpd"
         return null
+    }
+
+    /**
+     * v0.9.2: лучший аудио-only поток (YouTube Music): по рангу itag.
+     * Вызывается, когда pickStream пуст (нет HLS/muxed/DASH) — у
+     * музыкальных треков muxed-форматов не бывает вообще.
+     */
+    fun pickAudioStream(parse: PlayerParse): Pair<String, String>? {
+        val best = parse.audio.filter { it.url != null }.sortedByDescending { audioItagRank(it.itag) }.firstOrNull()
+        return best?.url?.let { it to "audio" }
+    }
+
+    /** Ранг аудио-itag: 141 (m4a 256k) > 251 (opus 160k) > 140 (m4a 128k) > 171 > 250/249 > 139. */
+    fun audioItagRank(itag: Int): Int = when (itag) {
+        141 -> 5
+        251 -> 4
+        140 -> 3
+        171 -> 2
+        250 -> 1
+        249 -> 1
+        139 -> 0
+        else -> 0
+    }
+
+    /**
+     * v0.9.3 (#1): пара для синтеза локального .mpd — лучшее видео-only
+     * (по высоте, затем fps, затем битрейт) + лучшее аудио-only
+     * (по рангу itag). Требуется plain url у обоих (cipher — не
+     * расшифровываем, как и везде) и initRange у обоих (без него
+     * DashManifest.build вернёт null). Null — пары нет.
+     */
+    fun pickDashPair(parse: PlayerParse): DashPair? {
+        val v = parse.video.filter { it.url != null && !it.hasCipher }
+            .sortedWith(compareByDescending<VideoAdaptiveFormat> { it.height ?: 0 }.thenByDescending { it.fps ?: 0 }.thenByDescending { it.bitrate ?: 0L })
+            .firstOrNull() ?: return null
+        val a = parse.audio.filter { it.url != null && !it.hasCipher }
+            .sortedByDescending { audioItagRank(it.itag) }
+            .firstOrNull() ?: return null
+        if (v.initStart == null || v.initEnd == null) return null
+        if (a.initStart == null || a.initEnd == null) return null
+        return DashPair(v, a)
+    }
+
+    /** mimeType до ';' ("video/mp4") — для AdaptationSet. */
+    fun mimeBase(mimeType: String?): String =
+        mimeType?.substringBefore(';')?.trim() ?: ""
+
+    /** codecs="..." из mimeType — для AdaptationSet. */
+    fun codecsOf(mimeType: String?): String =
+        mimeType?.let { CODECS_RE.find(it)?.groupValues?.get(1) } ?: ""
+
+    /** DashManifest.Track из видео-формата пары. */
+    fun videoDashTrack(v: VideoAdaptiveFormat): DashManifest.Track? {
+        val url = v.url ?: return null
+        return DashManifest.Track(url, mimeBase(v.mimeType), codecsOf(v.mimeType), v.bitrate ?: 0L, v.width, v.height, v.fps, v.initStart, v.initEnd, v.indexStart, v.indexEnd)
+    }
+
+    /** DashManifest.Track из аудио-формата пары. */
+    fun audioDashTrack(a: AudioFormat): DashManifest.Track? {
+        val url = a.url ?: return null
+        return DashManifest.Track(url, mimeBase(a.mimeType), codecsOf(a.mimeType), a.bitrate ?: 0L, null, null, null, a.initStart, a.initEnd, a.indexStart, a.indexEnd)
+    }
+
+    /**
+     * v0.9.2: объекты верхнего уровня из JSON-массива (баланс скобок,
+     * строки учитываются). Для adaptiveFormats: объекты с вложенными
+     * initRange/indexRange — плоский regex их не режет.
+     */
+    fun splitTopObjects(arrayText: String): List<String> {
+        val out = ArrayList<String>()
+        var depth = 0
+        var inStr = false
+        var start = -1
+        var i = 0
+        while (i < arrayText.length) {
+            val c = arrayText[i]
+            if (inStr) {
+                if (c == '\\') {
+                    i += 2
+                    continue
+                }
+                if (c == '"') inStr = false
+            } else {
+                when (c) {
+                    '"' -> inStr = true
+                    '{' -> {
+                        if (depth == 0) start = i
+                        depth++
+                    }
+                    '}' -> {
+                        depth--
+                        if (depth == 0 && start >= 0) {
+                            out.add(arrayText.substring(start, i + 1))
+                            start = -1
+                        }
+                    }
+                }
+            }
+            i++
+        }
+        return out
     }
 
     /** Muxed форматы с plain url, по убыванию качества (itag → ранг). */

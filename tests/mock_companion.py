@@ -18,6 +18,8 @@ SRP handshake against a real TV is only verified live, by Alexey.
 The mock answers every OPACK request (_t=2) with
 {"_i": <same>, "_x": <same xid>, "_t": 3, "_c": {}} and records the
 _launchApp dict + deep link in the summary JSON (flushed immediately).
+v0.9.3 (#14): FetchLaunchableApplicationsEvent gets a _c dict with
+a VLC entry (bundle id org.videolan.vlc-ios, name "VLC").
 """
 import argparse
 import json
@@ -110,7 +112,17 @@ def main():
                     write_summary()
                     print("[mock-companion] _launchApp recorded: %r" % (data,), flush=True)
                 if data.get("_t") == 2:  # Request -> Response
-                    resp = {"_i": data.get("_i"), "_x": data.get("_x"), "_t": 3, "_c": {}}
+                    if data.get("_i") == "FetchLaunchableApplicationsEvent":
+                        # v0.9.3 (#14): app_list — _c = {bundle_id: name},
+                        # с VLC (имя "VLC" + vlc в bundle id).
+                        content = {
+                            "com.apple.tv": "TV",
+                            "org.videolan.vlc-ios": "VLC",
+                            "com.netflix.Netflix": "Netflix",
+                        }
+                        resp = {"_i": data.get("_i"), "_x": data.get("_x"), "_t": 3, "_c": content}
+                    else:
+                        resp = {"_i": data.get("_i"), "_x": data.get("_x"), "_t": 3, "_c": {}}
                     resp_bytes = pack(resp)
                     resp_header = bytes([ftype]) + (len(resp_bytes) + 16).to_bytes(3, "big")
                     enc = out_cipher.encrypt(nonce(out_counter), resp_bytes, resp_header)

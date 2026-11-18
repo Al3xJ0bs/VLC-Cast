@@ -1,5 +1,8 @@
 MOCK COMPANION READY on 49153
 [mock-companion] connection accepted
-[mock-companion] frame type=8 data={'_i': '_launchApp', '_t': 2, '_c': {'_urlS': 'vlc-x-callback://x-callback-url/stream?url=https%3A%2F%2Ftest-videos.co.uk%2Fvids%2Fbigbuckbunny%2Fmp4%2Fh264%2F1080%2FBig_Buck_Bunny_1080_10s_1MB.mp4'}, '_x': 30578}
-[mock-companion] _launchApp recorded: {'_i': '_launchApp', '_t': 2, '_c': {'_urlS': 'vlc-x-callback://x-callback-url/stream?url=https%3A%2F%2Ftest-videos.co.uk%2Fvids%2Fbigbuckbunny%2Fmp4%2Fh264%2F1080%2FBig_Buck_Bunny_1080_10s_1MB.mp4'}, '_x': 30578}
+[mock-companion] frame type=8 data={'_i': '_launchApp', '_t': 2, '_c': {'_urlS': 'vlc-x-callback://x-callback-url/stream?url=https%3A%2F%2Ftest-videos.co.uk%2Fvids%2Fbigbuckbunny%2Fmp4%2Fh264%2F1080%2FBig_Buck_Bunny_1080_10s_1MB.mp4'}, '_x': 43773}
+[mock-companion] _launchApp recorded: {'_i': '_launchApp', '_t': 2, '_c': {'_urlS': 'vlc-x-callback://x-callback-url/stream?url=https%3A%2F%2Ftest-videos.co.uk%2Fvids%2Fbigbuckbunny%2Fmp4%2Fh264%2F1080%2FBig_Buck_Bunny_1080_10s_1MB.mp4'}, '_x': 43773}
+[mock-companion] connection closed: connection closed (0/4 bytes)
+[mock-companion] connection accepted
+[mock-companion] frame type=8 data={'_i': 'FetchLaunchableApplicationsEvent', '_t': 2, '_c': {}, '_x': 2676}
 [mock-companion] connection closed: connection closed (0/4 bytes)

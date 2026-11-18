@@ -44,6 +44,8 @@ $KOTLINC -cp "$AJAR" -d tests/test.jar \
   app/src/main/java/com/alexey/aircast/LayoutContract.kt \
   app/src/main/java/com/alexey/aircast/VideoExtractor.kt \
   app/src/main/java/com/alexey/aircast/YouTube.kt \
+  app/src/main/java/com/alexey/aircast/DashManifest.kt \
+  app/src/main/java/com/alexey/aircast/PairingBackup.kt \
   app/src/main/java/com/alexey/aircast/StreamProxy.kt \
   app/src/main/java/com/alexey/aircast/StreamProbe.kt \
   app/src/main/java/com/alexey/aircast/EpisodeList.kt \
@@ -54,6 +56,8 @@ $KOTLINC -cp "$AJAR" -d tests/test.jar \
   app/src/main/java/com/alexey/aircast/PlaybackMemory.kt \
   app/src/main/java/com/alexey/aircast/OpenSubtitles.kt \
   app/src/main/java/com/alexey/aircast/UpdateCheck.kt \
+  app/src/main/java/com/alexey/aircast/UpdateGate.kt \
+  app/src/main/java/com/alexey/aircast/AppUpdater.kt \
   app/src/main/java/com/alexey/aircast/LocalFileCast.kt \
   app/src/main/java/com/alexey/aircast/MasterWait.kt \
   app/src/main/java/com/alexey/aircast/ResumePlaylist.kt \
@@ -61,6 +65,8 @@ $KOTLINC -cp "$AJAR" -d tests/test.jar \
   app/src/main/java/com/alexey/aircast/LogShareActivity.kt \
   app/src/main/java/com/alexey/aircast/LogFileProvider.kt \
   app/src/main/java/com/alexey/aircast/AutoCast.kt \
+  app/src/main/java/com/alexey/aircast/AudioCast.kt \
+  app/src/main/java/com/alexey/aircast/FileShareRoute.kt \
   app/src/main/java/com/alexey/aircast/CastEngine.kt \
   app/src/main/java/com/alexey/aircast/CastService.kt \
   app/src/main/java/com/alexey/aircast/ShareReceiverActivity.kt \

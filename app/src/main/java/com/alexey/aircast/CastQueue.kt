@@ -17,7 +17,7 @@ sealed class QueueItem {
     data class Url(val url: String) : QueueItem()
 
     /** Видеофайл из Telegram/галереи (content:// URI + имя для показа). */
-    data class File(val uri: String, val displayName: String?) : QueueItem()
+    data class File(val uri: String, val displayName: String?, val isAudio: Boolean = false) : QueueItem()
 }
 
 class CastQueue {

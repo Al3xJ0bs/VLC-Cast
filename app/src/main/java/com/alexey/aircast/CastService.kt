@@ -42,6 +42,12 @@ class CastService : Service() {
         const val ACTION_TOGGLE_SUBS = "com.alexey.aircast.action.TOGGLE_SUBS"
         /** v0.9.1: имя видеофайла для показа (extra, рядом с data URI). */
         const val EXTRA_FILE_NAME = "vlc_cast_file_name"
+        /** v0.9.2: путь к копии файла в cacheDir/aircast-temp
+         *  (ShareReceiverActivity скопировала content URI, пока
+         *  grant был жив). Без data URI — сервису grant не нужен. */
+        const val EXTRA_FILE_PATH = "vlc_cast_file_path"
+        /** v0.9.2: файл — аудио (MIME audio), а не видео. */
+        const val EXTRA_FILE_IS_AUDIO = "vlc_cast_file_is_audio"
         const val NOTIF_ID = 1001
 
         /** Сколько ждём действия пользователя (PIN / выбор ТВ). */
@@ -60,12 +66,53 @@ class CastService : Service() {
          * интента (а не в extra): только так FLAG_GRANT_READ_URI_
          * PERMISSION передаёт сервису право чтения content:// URI.
          */
-        fun fileCastIntent(ctx: Context, uri: android.net.Uri, name: String?): Intent =
+        fun fileCastIntent(ctx: Context, uri: android.net.Uri, name: String?, isAudio: Boolean = false): Intent =
             Intent(ctx, CastService::class.java).apply {
                 action = ACTION_CAST
                 data = uri
                 if (name != null) putExtra(EXTRA_FILE_NAME, name)
+                putExtra(EXTRA_FILE_IS_AUDIO, isAudio)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+        /**
+         * v0.9.2: каст копии файла по пути (ShareReceiverActivity
+         * скопировала content:// URI, пока grant был жив — баг
+         * 0.9.1 «Не удалось открыть файл» из Telegram). Без data
+         * URI: сервису grant не нужен вообще, движок читает файл
+         * напрямую (JavaFileSource).
+         */
+        fun filePathCastIntent(ctx: Context, path: String, name: String?, isAudio: Boolean = false): Intent =
+            Intent(ctx, CastService::class.java).apply {
+                action = ACTION_CAST
+                putExtra(EXTRA_FILE_PATH, path)
+                if (name != null) putExtra(EXTRA_FILE_NAME, name)
+                putExtra(EXTRA_FILE_IS_AUDIO, isAudio)
+            }
+
+        /**
+         * v0.9.3 (хотфикс 0.9.2 — тишина из Telegram): сервис стартует
+         * СИНХРОННО в onCreate ShareReceiverActivity, ДО копии файла.
+         * Сразу показывает «Копирую файл…» и ждёт путь вторым интентом.
+         * Без data/extra — только имя файла для уведомления.
+         */
+        fun fileWaitIntent(ctx: Context, name: String?, isAudio: Boolean = false): Intent =
+            Intent(ctx, CastService::class.java).apply {
+                action = FileShareRoute.ACTION_FILE_WAIT
+                if (name != null) putExtra(EXTRA_FILE_NAME, name)
+                putExtra(EXTRA_FILE_IS_AUDIO, isAudio)
+            }
+
+        /**
+         * v0.9.3: доставка пути к копии в уже работающий (foreground)
+         * сервис. Ограничение Android 12+ на старт из фона не действует.
+         */
+        fun fileDeliverIntent(ctx: Context, path: String, name: String?, isAudio: Boolean = false): Intent =
+            Intent(ctx, CastService::class.java).apply {
+                action = FileShareRoute.ACTION_FILE_DELIVER
+                putExtra(EXTRA_FILE_PATH, path)
+                if (name != null) putExtra(EXTRA_FILE_NAME, name)
+                putExtra(EXTRA_FILE_IS_AUDIO, isAudio)
             }
 
         fun cancelIntent(ctx: Context): Intent =
@@ -135,36 +182,89 @@ class CastService : Service() {
                 Log.add("tv", "CastService: ТВ выбран в activity: $host (continued=$continued)")
                 return START_NOT_STICKY
             }
-            else -> {
-                // v0.9.1: шаринг видеофайла (data URI из Telegram/галереи).
-                // Если идёт видео — файл встанет в очередь: не трогаем
-                // уведомление «идёт» (startForeground его заменил бы).
-                val fileUri = intent?.data
-                if (fileUri != null) {
-                    val name = intent.getStringExtra(EXTRA_FILE_NAME)
-                    cancelWaitTimer()
-                    currentUrl = null
-                    if (!autoNextArmed) {
-                        startForeground(NOTIF_ID, progressNotification("Файл получен — запускаю…"))
-                    }
-                    engine.startFileShare(fileUri.toString(), name)
-                    return START_NOT_STICKY
-                }
-                val url = intent?.getStringExtra(AutoCast.EXTRA_URL)
-                    ?: return START_NOT_STICKY
-                cancelWaitTimer()
-                currentUrl = url
-                // v0.9.1: если идёт видео — шаринг встал в очередь:
-                // не трогаем armed-флаг и уведомление «идёт».
-                if (autoNextArmed) {
-                    engine.startShare(url)
-                    return START_NOT_STICKY
-                }
-                cancelHideTimer()
-                autoNextArmed = false
-                startForeground(NOTIF_ID, progressNotification(AutoCast.notifProgressText()))
-                engine.startShare(url)
+            // v0.9.3 (хотфикс 0.9.2 — тишина из Telegram): сервис
+            // стартовал синхронно в onCreate activity, ДО копии файла.
+            // Сразу foreground + «Копирую файл…», ждёт путь вторым
+            // интентом. Страховка: если activity умрёт до доставки
+            // пути — сервис сам остановится через 5 мин, а не висит
+            // вечно с «Копирую файл…».
+            FileShareRoute.ACTION_FILE_WAIT -> {
+                val name = intent.getStringExtra(EXTRA_FILE_NAME)
+                val isAudio = intent.getBooleanExtra(EXTRA_FILE_IS_AUDIO, false)
+                Log.add("service", "FILE_WAIT: жду копию файла (${name ?: "без имени"}, аудио=$isAudio)")
+                armWaitTimer()
+                startForeground(NOTIF_ID, progressNotification(AutoCast.notifCopyingFileText()))
                 return START_NOT_STICKY
+            }
+            // v0.9.3: доставка пути к копии в уже работающий
+            // (foreground) сервис — ограничение Android 12+ на старт
+            // из фона не действует.
+            FileShareRoute.ACTION_FILE_DELIVER -> {
+                val filePath = intent.getStringExtra(EXTRA_FILE_PATH)
+                    ?: return START_NOT_STICKY
+                val name = intent.getStringExtra(EXTRA_FILE_NAME)
+                val isAudio = intent.getBooleanExtra(EXTRA_FILE_IS_AUDIO, false)
+                Log.add("service", "FILE_DELIVER: путь к копии: $filePath (аудио=$isAudio)")
+                cancelWaitTimer()
+                currentUrl = null
+                if (!autoNextArmed) {
+                    startForeground(NOTIF_ID, progressNotification(if (isAudio) AutoCast.notifProgressAudioText() else "Файл получен — запускаю…"))
+                }
+                engine.startFileShare(filePath, name, isAudio)
+                return START_NOT_STICKY
+            }
+            else -> {
+                // v0.9.3: маршрутизация — через чистую FileShareRoute
+                // (JVM-тесты); порядок веток — как раньше: путь, URI, URL.
+                val filePath = intent?.getStringExtra(EXTRA_FILE_PATH)
+                val fileUri = intent?.data
+                val url = intent?.getStringExtra(AutoCast.EXTRA_URL)
+                when (FileShareRoute.resolve(intent?.action, filePath, fileUri?.toString(), url)) {
+                    FileShareRoute.Route.DELIVER_PATH -> {
+                        val name = intent?.getStringExtra(EXTRA_FILE_NAME)
+                        val isAudio = intent?.getBooleanExtra(EXTRA_FILE_IS_AUDIO, false) ?: false
+                        Log.add("service", "ACTION_CAST по пути: $filePath (аудио=$isAudio)")
+                        cancelWaitTimer()
+                        currentUrl = null
+                        if (!autoNextArmed) {
+                            startForeground(NOTIF_ID, progressNotification(if (isAudio) AutoCast.notifProgressAudioText() else "Файл получен — запускаю…"))
+                        }
+                        engine.startFileShare(filePath!!, name, isAudio)
+                        return START_NOT_STICKY
+                    }
+                    FileShareRoute.Route.FILE_URI -> {
+                        // v0.9.1: шаринг видеофайла (data URI из
+                        // Telegram/галереи). Если идёт видео — файл
+                        // встанет в очередь: не трогаем уведомление
+                        // «идёт» (startForeground его заменил бы).
+                        val name = intent?.getStringExtra(EXTRA_FILE_NAME)
+                        val isAudio = intent?.getBooleanExtra(EXTRA_FILE_IS_AUDIO, false) ?: false
+                        cancelWaitTimer()
+                        currentUrl = null
+                        if (!autoNextArmed) {
+                            startForeground(NOTIF_ID, progressNotification(if (isAudio) AutoCast.notifProgressAudioText() else "Файл получен — запускаю…"))
+                        }
+                        engine.startFileShare(fileUri.toString(), name, isAudio)
+                        return START_NOT_STICKY
+                    }
+                    FileShareRoute.Route.URL -> {
+                        cancelWaitTimer()
+                        currentUrl = url
+                        // v0.9.1: если идёт видео — шаринг встал в
+                        // очередь: не трогаем armed-флаг и
+                        // уведомление «идёт».
+                        if (autoNextArmed) {
+                            engine.startShare(url!!)
+                            return START_NOT_STICKY
+                        }
+                        cancelHideTimer()
+                        autoNextArmed = false
+                        startForeground(NOTIF_ID, progressNotification(AutoCast.notifProgressText()))
+                        engine.startShare(url!!)
+                        return START_NOT_STICKY
+                    }
+                    else -> return START_NOT_STICKY
+                }
             }
         }
     }
@@ -313,7 +413,10 @@ class CastService : Service() {
     private fun onLaunched() {
         cancelWaitTimer()
         val title = engine.currentTitle()
-        val text = if (title.isNotBlank()) AutoCast.notifSuccessWithTitleText(title) else AutoCast.notifSuccessText()
+        // v0.9.2: аудио без названия — «Аудио запущено…», а не «Видео…».
+        val text = if (title.isNotBlank()) AutoCast.notifSuccessWithTitleText(title)
+            else if (engine.isAudioFlow()) AutoCast.notifSuccessAudioText()
+            else AutoCast.notifSuccessText()
         val b = Notification.Builder(this, AutoCast.NOTIF_CHANNEL_ID)
             .setSmallIcon(smallIcon())
             .setContentTitle("VLC Cast")
@@ -390,9 +493,11 @@ class CastService : Service() {
             if (autoNextArmed) nm().notify(NOTIF_ID, watchingNotification())
         }
 
-        /** v0.9.1: Apple TV не отвечает даже после пробуждения. */
+        /** v0.9.1: Apple TV не отвечает даже после пробуждения.
+         *  v0.9.2: с «Поделиться логом» — как «Видео не найдено»:
+         *  pre-check умер до запуска, без лога не разобрать. */
         override fun onTvUnreachable() {
-            endWithAction(AutoCast.notifTvUnreachableText(), AutoCast.MODE_INSTRUCTION) {}
+            endWithAction(AutoCast.notifTvUnreachableText(), AutoCast.MODE_INSTRUCTION, shareLog = true) {}
         }
 
         override fun onLaunchFailed(msg: String) {
@@ -452,6 +557,12 @@ class CastService : Service() {
 
         override fun onError(msg: String) {
             endWithAction(msg, AutoCast.MODE_INSTRUCTION) {}
+        }
+
+        /** v0.9.2: ошибка файла — с «Поделиться логом»,
+         *  как в «Видео не найдено» (диагностика без телефона). */
+        override fun onFileError(msg: String) {
+            endWithAction(msg, AutoCast.MODE_INSTRUCTION, shareLog = true) {}
         }
     }
 }

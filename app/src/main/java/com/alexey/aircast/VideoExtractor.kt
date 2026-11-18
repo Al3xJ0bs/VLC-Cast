@@ -46,6 +46,14 @@ data class VideoCandidate(
      *  isMasterPlaylist; движок может поднять флаг и по содержимому
      *  через StreamProbe.isHlsMaster, когда URL без маркера). */
     val isMaster: Boolean = VideoUrls.isMasterPlaylist(url),
+    /** v0.9.2: аудио-кандидат (трек/радио, не видео). Видео в
+     *  приоритете при выборе (AutoCast.orderedAttempts: аудио-пул —
+     *  только если видео нет вообще). */
+    val isAudio: Boolean = false,
+    /** v0.9.3 (#4): частота кадров, если известна из URL
+     *  (60fps/720p60) или из источника (YouTube adaptive fps).
+     *  При равном счёте (формат+качество) 60fps выше (AutoCast). */
+    val fps: Int? = null,
 )
 
 /** One <video> found by the JS scan. */
@@ -67,6 +75,8 @@ data class ScanVideo(val src: String, val w: Int, val h: Int)
  * в скриптах); pageTitle — title страницы (для диагностики «не найдено»).
  * v0.9.1: poster — og:image (только top doc) для BigPictureStyle
  * в уведомлении «запущено».
+ * v0.9.2: audios — теги <audio> (+ <source> внутри), как videos
+ * для видео: SoundCloud/Bandcamp/радио-страницы без <video>.
  */
 data class ScanResult(
     val videos: List<ScanVideo> = emptyList(),
@@ -78,6 +88,11 @@ data class ScanResult(
     val subs: List<SubTrack> = emptyList(),
     val pageTitle: String = "",
     val poster: String = "",
+    val audios: List<ScanVideo> = emptyList(),
+    /** v0.9.3 (#23): сырые тексты <script type="application/ld+json">. */
+    val jsonld: List<String> = emptyList(),
+    /** v0.9.3 (#24): href link rel=alternate type=application/json+oembed. */
+    val oembed: List<String> = emptyList(),
 )
 
 object VideoUrls {
@@ -126,6 +141,15 @@ object VideoUrls {
             u.contains(".mpd") -> "mpd (DASH)"
             u.contains(".mov") -> "mov"
             u.contains(".webm") -> "webm"
+            // v0.9.2: аудио-форматы (для аудио-кандидатов; видео-путь их не трогает).
+            u.contains(".flac") -> "flac"
+            u.contains(".mp3") -> "mp3"
+            u.contains(".aac") -> "aac"
+            u.contains(".m4a") -> "m4a"
+            u.contains(".ogg") || u.contains(".oga") -> "ogg"
+            u.contains(".wav") -> "wav"
+            u.contains(".opus") -> "opus"
+            u.contains(".mka") -> "mka"
             else -> "?"
         }
     }
@@ -141,6 +165,16 @@ object VideoUrls {
             u.contains("360") -> "360p"
             else -> "?"
         }
+    }
+
+    // v0.9.3 (#4): частота кадров из URL (60fps, 720p60, 1080p60,
+    // 120fps). «1080p» без суффикса — не fps (p без цифр после).
+    private val FPS_RE = Regex("""(?:(\d{2,3})fps|p(60|120|50|30|25|24)(?![0-9]))""", RegexOption.IGNORE_CASE)
+
+    /** Частота кадров из маркеров URL, или null (неизвестна). */
+    fun fpsOf(url: String): Int? {
+        val m = FPS_RE.find(url.toLowerCase()) ?: return null
+        return (m.groupValues[1].ifEmpty { m.groupValues[2] }).toIntOrNull()
     }
 
     fun isKodik(url: String): Boolean {
@@ -409,7 +443,49 @@ object VideoUrls {
         return decodeJsResult("\"$inner\"") ?: inner
     }
 
+    // v0.9.3 (хотфикс Instagram): те же паттерны, что SCAN_JS ищет в
+    // живом DOM — meta og:video / og:video:secure_url / og:video:url /
+    // twitter:player:stream (content до или после property) и
+    // "video_url" из JSON страницы (как re6 в SCAN_JS).
+    private val META_VIDEO_A = Regex("""<meta[^>]+(?:property|name)\s*=\s*["'](?:og:video(?::secure_url|:url)?|twitter:player:stream)["'][^>]+content\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+    private val META_VIDEO_B = Regex("""<meta[^>]+content\s*=\s*["']([^"']+)["'][^>]+(?:property|name)\s*=\s*["'](?:og:video(?::secure_url|:url)?|twitter:player:stream)["']""", RegexOption.IGNORE_CASE)
+    private val VIDEO_URL_JSON = Regex(""""video_url"\s*:\s*"((?:[^"\\]|\\.)*)"""")
+
+    /**
+     * v0.9.3 (хотфикс Instagram): видео-URL из СЫРОГО HTML — без
+     * WebView. Instagram голому WebView отдаёт страницу входа без
+     * og:video, а прямому HTTP-fetch с десктопным UA — страницу поста
+     * с ними. Возвращает сырые значения (могут быть //... — резолвит
+     * вызывающий через resolveScriptUrl); &amp; → &, \/ → /.
+     * Порядок — как в документе (не по группам паттернов).
+     * \"video_url\" из JSON — строка целиком (в сыром HTML слеши
+     * экранированы как \/, SCAN_JS re6 с буквальным // их не ловит);
+     * после unescape — только URL-форма (http(s):// или //).
+     * Никогда не бросает: на любом сбое — то, что успели собрать.
+     */
+    fun extractMetaVideoUrls(html: String): List<String> {
+        val found = ArrayList<Pair<Int, String>>()
+        fun clean(raw: String): String? {
+            val v = raw.replace("&amp;", "&").replace("\\/", "/").trim()
+            if (v.isBlank() || v.startsWith("blob:") || v.startsWith("data:")) return null
+            return v
+        }
+        try {
+            for (m in META_VIDEO_A.findAll(html)) clean(m.groupValues[1])?.let { found.add(m.range.first to it) }
+            for (m in META_VIDEO_B.findAll(html)) clean(m.groupValues[1])?.let { found.add(m.range.first to it) }
+            for (m in VIDEO_URL_JSON.findAll(html)) {
+                val v = try { unescapeJsonString(m.groupValues[1]) } catch (e: Exception) { m.groupValues[1] }
+                val c = clean(v)
+                if (c != null && (c.startsWith("http://") || c.startsWith("https://") || c.startsWith("//"))) found.add(m.range.first to c)
+            }
+        } catch (e: Exception) {
+            // Никогда не бросает — вернётся то, что успели собрать.
+        }
+        return found.sortedBy { it.first }.map { it.second }.distinct()
+    }
+
     private val VIDEO_OBJ = Regex("""\{\s*"src"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"w"\s*:\s*(\d+)\s*,\s*"h"\s*:\s*(\d+)\s*\}""")
+    private val AUDIOS_ARR = Regex(""""audios"\s*:\s*\[(.*?)\]""", RegexOption.DOT_MATCHES_ALL)
     private val IFRAMES_ARR = Regex(""""iframes"\s*:\s*\[(.*?)\]""", RegexOption.DOT_MATCHES_ALL)
     private val URLS_ARR = Regex(""""urls"\s*:\s*\[(.*?)\]""", RegexOption.DOT_MATCHES_ALL)
     private val REL_ARR = Regex(""""rel"\s*:\s*\[(.*?)\]""", RegexOption.DOT_MATCHES_ALL)
@@ -438,6 +514,16 @@ object VideoUrls {
                 if (src.isNotEmpty()) {
                     videos.add(ScanVideo(src, m.groupValues[2].toIntOrNull() ?: 0, m.groupValues[3].toIntOrNull() ?: 0))
                 }
+            }
+        } catch (ignored: Exception) {
+        }
+        // v0.9.2: теги <audio> — та же форма объекта {src,w,h} (w/h = 0).
+        val audios = ArrayList<ScanVideo>()
+        try {
+            val arr = AUDIOS_ARR.find(json)?.groupValues?.get(1) ?: ""
+            for (m in VIDEO_OBJ.findAll(arr)) {
+                val src = unescapeJsonString(m.groupValues[1])
+                if (src.isNotEmpty()) audios.add(ScanVideo(src, 0, 0))
             }
         } catch (ignored: Exception) {
         }
@@ -508,7 +594,98 @@ object VideoUrls {
             poster = POSTER_VAL.find(json)?.groupValues?.get(1)?.let { unescapeJsonString(it) } ?: ""
         } catch (ignored: Exception) {
         }
-        return ScanResult(videos, frames, urls, rel, jwFeeds, links, subs, title, poster)
+        // v0.9.3 (#23/#24): jsonld/oembed — массив JSON-строк; внутри
+        // блоков есть неэкранированные [ ] (например @graph), поэтому
+        // обычный regex массива (.*?) оборвался бы на первой ] —
+        // парсим строки вручную (parseJsonStringArray).
+        val jsonld = try { parseJsonStringArray(json, "jsonld") } catch (ignored: Exception) { emptyList() }
+        val oembed = try { parseJsonStringArray(json, "oembed") } catch (ignored: Exception) { emptyList() }
+        return ScanResult(videos, frames, urls, rel, jwFeeds, links, subs, title, poster, audios, jsonld, oembed)
+    }
+
+    /**
+     * v0.9.3 (#23/#24): массив JSON-строк по ключу ("jsonld": ["..."]).
+     * Ручной парсер: внутри строк бывают [ ] и экранированные кавычки —
+     * regex с нежадным (.*?) ломается. Никогда не бросает.
+     */
+    fun parseJsonStringArray(json: String, key: String): List<String> {
+        val out = ArrayList<String>()
+        val keyIdx = json.indexOf("\"$key\"")
+        if (keyIdx < 0) return out
+        var i = json.indexOf('[', keyIdx)
+        if (i < 0) return out
+        i++
+        while (i < json.length) {
+            while (i < json.length && (json[i] == ' ' || json[i] == '\n' || json[i] == '\r' || json[i] == '\t' || json[i] == ',')) i++
+            if (i >= json.length) break
+            if (json[i] == ']') break
+            if (json[i] != '"') { i++; continue }
+            val sb = StringBuilder()
+            i++
+            var closed = false
+            while (i < json.length) {
+                val c = json[i]
+                if (c == '\\' && i + 1 < json.length) {
+                    sb.append(c); sb.append(json[i + 1]); i += 2
+                } else if (c == '"') { i++; closed = true; break }
+                else { sb.append(c); i++ }
+            }
+            if (closed) out.add(unescapeJsonString(sb.toString()))
+        }
+        return out
+    }
+
+    private val JSONLD_CONTENT_URL = Regex(""""contentUrl"\s*:\s*"((?:[^"\\]|\\.)*)"""")
+    private val JSONLD_EMBED_URL = Regex(""""embedUrl"\s*:\s*"((?:[^"\\]|\\.)*)"""")
+
+    /**
+     * v0.9.3 (#23): видео-URL из блока JSON-LD. Блок должен упоминать
+     * VideoObject (иначе — не видеоразметка). @graph обрабатывается
+     * без структурного парсинга — regex ищут по всему тексту блока.
+     * contentUrl — предпочтительно (прямой файл); embedUrl — только
+     * если он сам видео-URL (страница плеера — не видео).
+     * contentUrl массивом (["u1","u2"]) — не поддерживается честно
+     * (в разметке почти всегда строка).
+     */
+    fun parseJsonLdVideoObject(jsonld: String): String? {
+        if (!jsonld.contains("VideoObject")) return null
+        for (m in JSONLD_CONTENT_URL.findAll(jsonld)) {
+            val u = try { unescapeJsonString(m.groupValues[1]) } catch (e: Exception) { m.groupValues[1] }
+            if (u.isNotBlank() && isVideoUrl(u)) return u
+        }
+        for (m in JSONLD_EMBED_URL.findAll(jsonld)) {
+            val u = try { unescapeJsonString(m.groupValues[1]) } catch (e: Exception) { m.groupValues[1] }
+            if (u.isNotBlank() && isVideoUrl(u)) return u
+        }
+        return null
+    }
+
+    private val OEMBED_TYPE = Regex(""""type"\s*:\s*"([^"]*)"""")
+    private val OEMBED_URL = Regex(""""url"\s*:\s*"((?:[^"\\]|\\.)*)"""")
+    private val OEMBED_HTML = Regex(""""html"\s*:\s*"((?:[^"\\]|\\.)*)"""")
+    private val OEMBED_IFRAME_SRC = Regex("""<iframe[^>]+src\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+
+    /**
+     * v0.9.3 (#24): видео-URL из oEmbed JSON. type=photo/link — не
+     * видео (null); type=video или без type — сначала "url" (если сам
+     * видео-URL), затем src из "html" (iframe). XML oEmbed — вне скопа
+     * (SCAN_JS собирает только application/json+oembed).
+     */
+    fun parseOembedVideoUrl(json: String): String? {
+        val type = OEMBED_TYPE.find(json)?.groupValues?.get(1) ?: ""
+        if (type.isNotEmpty() && type != "video") return null
+        val url = OEMBED_URL.find(json)?.groupValues?.get(1)?.let {
+            try { unescapeJsonString(it) } catch (e: Exception) { it }
+        }
+        if (!url.isNullOrBlank() && isVideoUrl(url)) return url
+        val html = OEMBED_HTML.find(json)?.groupValues?.get(1)?.let {
+            try { unescapeJsonString(it) } catch (e: Exception) { it }
+        }
+        if (!html.isNullOrBlank()) {
+            val src = OEMBED_IFRAME_SRC.find(html)?.groupValues?.get(1)
+            if (!src.isNullOrBlank() && isVideoUrl(src)) return src
+        }
+        return null
     }
 
     /**
@@ -534,13 +711,22 @@ object VideoUrls {
      * twitter:player:stream и "video_url" из JSON страницы (Instagram:
      * видео есть в meta/JSON, <video> на странице нет) + og:image
      * (постер, только top doc).
+     * v0.9.2: + теги <audio> (audios, та же форма {src,w,h}, w/h=0),
+     * аудио-расширения в re/re2 (.mp3/.aac/.flac/.ogg/.oga/.m4a/.wav/
+     * .opus), SoundCloud media API (api-v2.soundcloud.com/media/… —
+     * без расширения, резолвится в Kotlin) и Bandcamp
+     * (tN.bcbits.com/stream/… — mp3-128 без .mp3 в пути).
      */
     const val SCAN_JS = """(function(){
       function collect(doc){
-        var out={videos:[],urls:[],rel:[],jwfeeds:[],subs:[],poster:''};
+        var out={videos:[],audios:[],urls:[],rel:[],jwfeeds:[],subs:[],poster:'',jsonld:[],oembed:[]};
         doc.querySelectorAll('video').forEach(function(v){
           out.videos.push({src: v.currentSrc || v.src || '', w: v.videoWidth||0, h: v.videoHeight||0});
           v.querySelectorAll('source').forEach(function(s){ out.videos.push({src: s.src||'', w:0, h:0}); });
+        });
+        doc.querySelectorAll('audio').forEach(function(a){
+          out.audios.push({src: a.currentSrc || a.src || '', w:0, h:0});
+          a.querySelectorAll('source').forEach(function(s){ out.audios.push({src: s.src||'', w:0, h:0}); });
         });
         doc.querySelectorAll('track[kind="subtitles"],track[kind="captions"]').forEach(function(t){
           out.subs.push({src: t.src||'', lang: t.srclang||'', label: t.label||''});
@@ -550,15 +736,24 @@ object VideoUrls {
         });
         var ogImg=doc.querySelector('meta[property="og:image"]');
         if(ogImg) out.poster=ogImg.getAttribute('content')||'';
+        // v0.9.3 (#23): JSON-LD VideoObject — сырые тексты скриптов
+        // (contentUrl/embedUrl парсятся в Kotlin).
+        doc.querySelectorAll('script[type="application/ld+json"]').forEach(function(s){
+          if(s.textContent) out.jsonld.push(s.textContent);
+        });
+        // v0.9.3 (#24): oEmbed — ссылка на JSON (только JSON, не XML).
+        doc.querySelectorAll('link[rel="alternate"][type="application/json+oembed"]').forEach(function(l){
+          if(l.href) out.oembed.push(l.href);
+        });
         doc.querySelectorAll('[data-url],[data-file],[data-video],[data-src],[data-hls],[data-stream],[data-source],[data-playlist],[data-mp4],[data-m3u8],[data-video-url],[data-hls-url],[data-file-url]').forEach(function(el){
           ['data-url','data-file','data-video','data-src','data-hls','data-stream','data-source','data-playlist','data-mp4','data-m3u8','data-video-url','data-hls-url','data-file-url'].forEach(function(a){
             var val=el.getAttribute(a); if(val) out.urls.push(val);
           });
         });
         var html=doc.documentElement.outerHTML.replace(/\\\//g,'/').replace(/\\u002f/gi,'/').replace(/&amp;/g,'&');
-        var re=/(?:https?:)?\/\/[^\s"'<>\\]+\.(?:m3u8|mp4|mpd|m4v|mov|webm)(?:[?#][^\s"'<>\\]*)?/gi;
+        var re=/(?:https?:)?\/\/[^\s"'<>\\]+\.(?:m3u8|mp4|mpd|m4v|mov|webm|mp3|aac|flac|ogg|oga|m4a|wav|opus)(?:[?#][^\s"'<>\\]*)?/gi;
         var m; while((m=re.exec(html))!==null){ out.urls.push(m[0]); }
-        var re2=/(?:["'\s=,\[{;])(\/[^\s"'<>\\]+\.(?:m3u8|mp4|mpd|m4v|mov|webm)(?:[?#][^\s"'<>\\]*)?)/g;
+        var re2=/(?:["'\s=,\[{;])(\/[^\s"'<>\\]+\.(?:m3u8|mp4|mpd|m4v|mov|webm|mp3|aac|flac|ogg|oga|m4a|wav|opus)(?:[?#][^\s"'<>\\]*)?)/g;
         while((m=re2.exec(html))!==null){ out.rel.push(m[1]); }
         var re3=/(https?%3A%2F%2F[^\s"'<>\\]+)/gi;
         while((m=re3.exec(html))!==null){ try{ out.urls.push(decodeURIComponent(m[1])); }catch(e){} }
@@ -568,6 +763,10 @@ object VideoUrls {
         while((m=re5.exec(html))!==null){ out.subs.push({src:m[0], lang:'', label:''}); }
         var re6=/"video_url"\s*:\s*"((?:https?:)?\/\/[^"\\]+)"/g;
         while((m=re6.exec(html))!==null){ out.urls.push(m[1]); }
+        var re7=/(?:https?:)?\/\/api-v2\.soundcloud\.com\/media\/[^\s"'<>\\]+/gi;
+        while((m=re7.exec(html))!==null){ out.urls.push(m[0]); }
+        var re8=/(?:https?:)?\/\/t\d+\.bcbits\.com\/stream\/[^\s"'<>\\]+/gi;
+        while((m=re8.exec(html))!==null){ out.urls.push(m[0]); }
         return out;
       }
       var top=collect(document);
@@ -578,10 +777,13 @@ object VideoUrls {
           var d=f.contentDocument; if(!d) return;
           var r=collect(d);
           top.videos=top.videos.concat(r.videos);
+          top.audios=top.audios.concat(r.audios);
           top.urls=top.urls.concat(r.urls);
           top.rel=top.rel.concat(r.rel);
           top.jwfeeds=top.jwfeeds.concat(r.jwfeeds);
           top.subs=top.subs.concat(r.subs);
+          top.jsonld=top.jsonld.concat(r.jsonld);
+          top.oembed=top.oembed.concat(r.oembed);
         }catch(e){}
       });
       var links=[];
@@ -589,6 +791,6 @@ object VideoUrls {
         if(links.length>=300) return;
         links.push({href: a.getAttribute('href')||'', text: (a.textContent||'').trim().slice(0,80)});
       });
-      return JSON.stringify({videos: top.videos, iframes: frames, urls: top.urls, rel: top.rel, jwfeeds: top.jwfeeds, links: links, subs: top.subs, url: location.href, title: document.title, poster: top.poster});
+      return JSON.stringify({videos: top.videos, audios: top.audios, iframes: frames, urls: top.urls, rel: top.rel, jwfeeds: top.jwfeeds, links: links, subs: top.subs, url: location.href, title: document.title, poster: top.poster, jsonld: top.jsonld, oembed: top.oembed});
     })()"""
 }

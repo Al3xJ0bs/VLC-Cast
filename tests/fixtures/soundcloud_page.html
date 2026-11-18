@@ -1,0 +1,11 @@
+<!doctype html>
+<html><head><title>Test Track — SoundCloud</title></head>
+<body>
+<audio id="player" src="https://api-v2.soundcloud.com/media/soundcloud:tracks:123456/stream/hls?client_id=abc123&amp;track_authorization=xyz"></audio>
+<script>
+window.__sc_state = {"media": {"transcodings": [
+  {"url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:123456/stream/hls?client_id=abc123&track_authorization=xyz", "preset": "mp3_0_1", "format": {"protocol": "hls", "mime_type": "audio/mpeg"}},
+  {"url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:123456/stream/progressive?client_id=abc123&track_authorization=xyz", "preset": "mp3_0_0", "format": {"protocol": "progressive", "mime_type": "audio/mpeg"}}
+]}};
+</script>
+</body></html>

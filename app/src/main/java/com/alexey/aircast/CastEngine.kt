@@ -71,6 +71,10 @@ class CastEngine(
         fun onPairingFailed(msg: String)
         /** Фатальная ошибка флоу (например, WebView не создался). */
         fun onError(msg: String)
+        /** v0.9.2: ошибка файлового флоу (открыть/прокси) — по
+         *  умолчанию как обычная; сервис показывает её с
+         *  «Поделиться логом». */
+        fun onFileError(msg: String) { onError(msg) }
         /** v0.9.1: воспроизведение закончилось (таймер) и нечего
          *  запускать дальше — сервис может остановиться. */
         fun onPlaybackEnded() {}
@@ -98,10 +102,21 @@ class CastEngine(
         const val MAX_LAUNCH_RESCHEDULES = 3
         /** Повторный JS-скан, пока ищем видео. */
         const val RESCAN_INTERVAL_MS = 3_000L
+        /** v0.9.3 (#5): общий дедлайн пробы скорости зеркал. */
+        const val MIRROR_PROBE_DEADLINE_MS = 2_500L
         /** Окно авто-поиска ТВ по mDNS. */
         const val TV_DISCOVERY_MS = 6_000L
         /** Высота видимого браузера в фолбэке. */
         const val FALLBACK_BROWSER_HEIGHT_DP = 420
+        /**
+         * v0.9.3 (#25): мобильный UA фонового WebView — тот же, что
+         * в PROXY_CHROME_UA (StreamProbe/StreamProxy). Вынесен в
+         * константу, чтобы resetFlow мог вернуть его после десктопного
+         * fallback-прохода (иначе следующий флоу стартовал бы с
+         * десктопным UA).
+         */
+        const val MOBILE_UA =
+            "Mozilla/5.0 (Linux; Android 16; RMX5011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
         /**
          * Авто-нажатие ▶ в плеере: после авто-открытия страницы плеера
          * пробуем запустить видео сами (Kodik отдаёт manifest только
@@ -124,16 +139,40 @@ class CastEngine(
             "(function(){try{var v=document.querySelector('video');if(v){try{var p=v.play&&v.play();}catch(e){}return 'video.play';}var sels=['.vjs-big-play-button','.vjs-play-control','.plyr__control--overlaid','[data-plyr=\"play\"]','.jw-display-icon-container','.jw-icon-playback','.dplayer-play-icon','.art-control-playAndPause','.xgplayer-start','[aria-label*=play i]','[title*=play i]','[class*=play i]','[id*=play i]'];for(var i=0;i<sels.length;i++){var b=document.querySelector(sels[i]);if(b){b.click();return 'clicked:'+sels[i];}}return 'no-video';}catch(e){return 'err:'+e;}}())"
 
         /**
+         * v0.9.3 (#26): активация lazy-iframe — прокрутить каждый
+         * iframe в видимую область и снять loading=lazy: иначе
+         * iframe с видео не грузится, пока до него не доскроллили,
+         * и скан его не видит. Возвращает число прокрученных iframe
+         * (для лога). Один раз за загрузку страницы (onPageFinished).
+         */
+        const val LAZY_IFRAME_JS =
+            "(function(){try{var f=document.querySelectorAll('iframe');var n=0;for(var i=0;i<f.length;i++){try{f[i].loading='eager';f[i].scrollIntoView({block:'center'});n++;}catch(e){}}return 'scrolled:'+n;}catch(e){return 'err:'+e;}}())"
+
+        /**
          * YouTube: visitorData + hlsManifestUrl из ytInitialPlayerResponse
          * загруженной watch-страницы (если есть). visitorData нужен для
          * InnerTube VISIONOS (без него LOGIN_REQUIRED).
          */
         const val YT_INFO_JS =
             "(function(){try{var r=window.ytInitialPlayerResponse||null;var vd='';var hls='';if(r){if(r.responseContext&&r.responseContext.visitorData)vd=r.responseContext.visitorData;if(r.streamingData&&r.streamingData.hlsManifestUrl)hls=r.streamingData.hlsManifestUrl;}if(!vd){var m=document.documentElement.innerHTML.match(/\"visitorData\":\"([^\"]+)\"/);if(m)vd=m[1];}return JSON.stringify({vd:vd,hls:hls});}catch(e){return JSON.stringify({vd:'',hls:''});}})()"
+
+        /**
+         * v0.9.2: занят ли движок — чистое решение по состоянию
+         * (JVM-тесты, без ТВ): занят только поиск/запуск
+         * (SEARCHING_TV / LOADING_PAGE / SEARCHING_VIDEO / LAUNCHING).
+         * LAUNCHED — уже НЕ занят, даже с cap-таймером 3 ч: новый
+         * шаринг прерывает текущий каст и запускается сразу (как
+         * в 0.9.0). Очередь — только в окно поиска/запуска.
+         */
+        fun isBusyState(state: CastEngine.FlowState): Boolean =
+            state == CastEngine.FlowState.SEARCHING_TV ||
+            state == CastEngine.FlowState.LOADING_PAGE ||
+            state == CastEngine.FlowState.SEARCHING_VIDEO ||
+            state == CastEngine.FlowState.LAUNCHING
     }
 
     /** Состояние авто-флоу (один запуск share/открытия). */
-    private enum class FlowState { IDLE, SEARCHING_TV, LOADING_PAGE, SEARCHING_VIDEO, NEED_PAIRING, LAUNCHING, LAUNCHED, TIMEOUT }
+    enum class FlowState { IDLE, SEARCHING_TV, LOADING_PAGE, SEARCHING_VIDEO, NEED_PAIRING, LAUNCHING, LAUNCHED, TIMEOUT }
 
     private val discovery by lazy { Discovery(ctx) }
     private val devices = LinkedHashMap<String, AirPlayDevice>()
@@ -155,8 +194,16 @@ class CastEngine(
     private var launchReschedules: Int = 0
     private var launchRunnable: Runnable? = null
     private var rescanRunnable: Runnable? = null
+    /** v0.9.3 (#25 + хотфикс Instagram): счётчик ресканов флоу и
+     *  флаги одноразовых fallback-проходов при пустом скане. */
+    private var rescanCount: Int = 0
+    private var directHtmlTried: Boolean = false
+    private var desktopUaTried: Boolean = false
     private var tickerRunnable: Runnable? = null
     private var tvCallback: (() -> Unit)? = null
+    /** v0.9.2: fallback pre-check — что делать, если mDNS тоже
+     *  никого не нашёл (тогда честный onTvUnreachable с drain). */
+    private var tvFallbackNone: (() -> Unit)? = null
     private var discoveryGen: Int = 0
     private var pickDiscoveryOnly: Boolean = false
     private var pendingCompanion: CompanionClient? = null
@@ -171,10 +218,26 @@ class CastEngine(
     private var youTubeEnded: Boolean = false
     /** v0.8.1: JWPlayer v2 feed URL, уже скачанные в этом флоу. */
     private val jwFeedsTried = HashSet<String>()
+    /** v0.9.3 (#24): уже скачанные oEmbed-ссылки (один раз за флоу). */
+    private val oembedTried = HashSet<String>()
+    /** v0.9.3 (#1): id зарегистрированных DASH-пар (снять в resetFlow). */
+    private val dashIds = HashSet<String>()
+    /** v0.9.2: аудио — страница аудио-сервиса (кандидаты с неё —
+     *  аудио), текущий файл — аудио, отложенный запуск — аудио,
+     *  уже резолвленные SoundCloud media API URL. */
+    private var audioPage: Boolean = false
+    private var currentFileIsAudio: Boolean = false
+    private var pendingLaunchIsAudio: Boolean = false
+    private val soundCloudTried = HashSet<String>()
     /** v0.9.0: авто-ретрай — упорядоченные попытки (orderedAttempts),
      *  индекс текущей; авто-следующая — ссылки <a> со страницы, дорожки
      *  субтитров, title страницы, следующий эпизод, таймер конца серии. */
     private var retryAttempts: List<VideoCandidate> = emptyList()
+    /** v0.9.3 (#5): поколение doAutoLaunch — устаревший поток пробы
+     *  зеркал не трогает retryAttempts. */
+    private var autoLaunchGen: Int = 0
+    /** v0.9.3 (#14): установка VLC уже проверена в этом флоу. */
+    private var vlcChecked: Boolean = false
     private var retryIndex: Int = 0
     private var episodeLinks: List<PageLink> = emptyList()
     private var currentSubs: List<SubTrack> = emptyList()
@@ -257,23 +320,37 @@ class CastEngine(
             Log.add("queue", "шаринг в очереди (#${queue.size}): ${VideoUrls.safeHost(url)}")
             return false
         }
+        // v0.9.2: Spotify/Apple Music — DRM, честно сразу, а не
+        // молчаливое «не найдено» после 30 с поиска.
+        if (AudioCast.isUnsupportedMusicService(url)) {
+            Log.add("share", "DRM-сервис, каст невозможен: ${VideoUrls.safeHost(url)}")
+            failFlow { listener.onError("Spotify/Apple Music: потоки зашифрованы (DRM) — во VLC их не сыграть") }
+            return true
+        }
         if (YouTubePlaylist.isPlaylistUrl(url)) {
             startYouTubePlaylistFlow(url)
             return true
         }
-        if (AutoCast.classifyUrl(url) == AutoCast.ShareKind.DIRECT_VIDEO) startDirectVideoFlow(url)
-        else startPageFlow(url)
+        // v0.9.2: плейлист радио (.pls/.m3u) — резолвим поток.
+        if (AudioCast.isRadioPlaylistUrl(url)) {
+            tryRadioPlaylist(url)
+            return true
+        }
+        when (AutoCast.classifyUrl(url)) {
+            AutoCast.ShareKind.DIRECT_AUDIO -> startDirectAudioFlow(url)
+            AutoCast.ShareKind.DIRECT_VIDEO -> startDirectVideoFlow(url)
+            else -> startPageFlow(url)
+        }
         return true
     }
 
-    /** Занят ли движок сейчас (идёт поиск/запуск/просмотр). */
-    private fun isBusy(): Boolean {
-        return flowState == FlowState.SEARCHING_TV ||
-            flowState == FlowState.LOADING_PAGE ||
-            flowState == FlowState.SEARCHING_VIDEO ||
-            flowState == FlowState.LAUNCHING ||
-            (launched && nextTimerRunnable != null)
-    }
+    /**
+     * Занят ли движок сейчас. v0.9.2: только пока идёт поиск/запуск
+     * (см. isBusyState); когда видео уже запущено (LAUNCHED) —
+     * свободен: новый шаринг прерывает текущий каст, а не встаёт
+     * в очередь на 3 ч cap-таймера (регрессия 0.9.1).
+     */
+    private fun isBusy(): Boolean = isBusyState(flowState)
 
     /** Прямая ссылка на видео — запускать сразу, без загрузки страницы. */
     private fun startDirectVideoFlow(url: String) {
@@ -288,9 +365,25 @@ class CastEngine(
         startTicker()
     }
 
+    /** v0.9.2: прямая ссылка на аудио — тот же флоу, метка «аудио». */
+    private fun startDirectAudioFlow(url: String) {
+        resetFlow()
+        currentSeriesKey = PlaybackMemory.seriesKey(url)
+        resumePositionSec = loadResumePosition(url)
+        autoArmed = true
+        flowState = FlowState.SEARCHING_VIDEO
+        searchDeadlineMs = System.currentTimeMillis() + SEARCH_TIMEOUT_MS
+        listener.onStatus("Прямая ссылка на аудио — запускаю…")
+        addCandidate(url, "ссылка", null, isAudio = true)
+        startTicker()
+    }
+
     /** Страница с плеером — грузим в фоновом WebView и ждём видео. */
     private fun startPageFlow(url: String) {
         resetFlow()
+        // v0.9.2: страница аудио-сервиса (SoundCloud / YouTube Music /
+        // Bandcamp) — кандидаты с неё считаются аудио.
+        audioPage = AudioCast.isAudioPage(url)
         episodePageUrl = url
         currentSeriesKey = PlaybackMemory.seriesKey(url)
         resumePositionSec = loadResumePosition(url)
@@ -398,11 +491,24 @@ class CastEngine(
         youTubePageLoaded = false
         youTubeEnded = false
         jwFeedsTried.clear()
+        oembedTried.clear()
+        // v0.9.3 (#1): снять регистрации DASH-пар прошлого флоу.
+        for (id in dashIds) streamProxy.unregisterDash(id)
+        dashIds.clear()
+        // v0.9.2: аудио-флаги флоу.
+        audioPage = false
+        currentFileIsAudio = false
+        pendingLaunchIsAudio = false
+        soundCloudTried.clear()
+        // v0.9.2: fallback pre-check прошлого флоу — снять.
+        tvFallbackNone = null
         // v0.9.0: авто-следующая серия — таймер отменяется при любом
         // новом флоу (новый share, следующая серия, фолбэк).
         cancelNextTimer()
         retryAttempts = emptyList()
         retryIndex = 0
+        autoLaunchGen++
+        vlcChecked = false
         episodeLinks = emptyList()
         currentSubs = emptyList()
         currentPageTitle = ""
@@ -413,6 +519,15 @@ class CastEngine(
         launchRunnable = null
         rescanRunnable?.let { uiHandler.removeCallbacks(it) }
         rescanRunnable = null
+        // v0.9.3 (#25 + хотфикс Instagram): счётчик и флаги
+        // fallback-проходов — сбросить; WebView вернуть на мобильный
+        // UA, иначе следующий флоу стартует с десктопным.
+        rescanCount = 0
+        directHtmlTried = false
+        if (desktopUaTried) {
+            desktopUaTried = false
+            try { webView?.settings?.userAgentString = MOBILE_UA } catch (ignored: Exception) {}
+        }
         flowState = FlowState.IDLE
         listener.onCandidatesChanged(emptyList())
     }
@@ -425,6 +540,9 @@ class CastEngine(
     fun currentPageUrl(): String? = currentPageUrl
     fun episodePageUrl(): String? = episodePageUrl
     fun hasPendingTvCallback(): Boolean = tvCallback != null
+
+    /** v0.9.2: текущий флоу — аудио (для текста уведомления об успехе). */
+    fun isAudioFlow(): Boolean = launchedCandidate?.isAudio == true || currentFileIsAudio
 
     /** v0.9.1: чистое название текущего видео для уведомления
      *  (TitleCleaner; если вытащить не удалось — host страницы). */
@@ -518,7 +636,6 @@ class CastEngine(
         if (!autoArmed || launched) return
         if (flowState != FlowState.LOADING_PAGE && flowState != FlowState.SEARCHING_VIDEO) return
         if (System.currentTimeMillis() < searchDeadlineMs) return
-        flowState = FlowState.TIMEOUT
         stopTicker()
         Log.add("share", "таймаут: видео не нашлось за 30 с (${candidates.size} канд.)")
         // v0.9.0: диагностика «не найдено» — в лог, чтобы по кнопке
@@ -527,7 +644,8 @@ class CastEngine(
         if (currentPageTitle.isNotBlank()) Log.add("diag", "title=${currentPageTitle.take(120)}")
         Log.add("diag", "scan: $lastScanDiag")
         Log.add("diag", "candidates=${candidates.size}")
-        listener.onTimeout(TimeoutState(currentPageUrl, episodePageUrl, candidates.toList()))
+        // v0.9.2: IDLE + drain, а не зависший TIMEOUT без очереди.
+        failFlow { listener.onTimeout(TimeoutState(currentPageUrl, episodePageUrl, candidates.toList())) }
     }
 
     // ---------- Браузер (фоновый WebView + перехват сети + JS-скан) ----------
@@ -542,18 +660,26 @@ class CastEngine(
                 settings.domStorageEnabled = true
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                settings.userAgentString = "Mozilla/5.0 (Linux; Android 16; RMX5011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
+                settings.userAgentString = MOBILE_UA
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                 webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                         val url = request.url.toString()
                         if (VideoUrls.isVideoUrl(url)) addCandidate(url, "перехват сети", request.requestHeaders["Referer"])
+                        // v0.9.2: аудио в трафике (SoundCloud media API,
+                        // Bandcamp mp3, прямые аудио) — отдельным кандидатом.
+                        else if (AudioCast.isAudioUrl(url)) addCandidate(url, "перехват сети", request.requestHeaders["Referer"], isAudio = true)
                         return null
                     }
                     override fun onPageFinished(view: WebView, url: String) {
                         currentPageUrl = url
                         prefs.edit().putString("lastUrl", url).apply()
+                        // v0.9.3 (#17): куки — на диск сразу после
+                        // загрузки страницы: вход через fallback-браузер
+                        // сохраняется (без flush() CookieManager держит
+                        // куки только в памяти до смерти процесса).
+                        try { CookieManager.getInstance().flush() } catch (ignored: Exception) {}
                         // v0.8.0: авто-play на ЛЮБОЙ загруженной странице,
                         // пока ищем видео (раньше — только на авто-открытой
                         // странице плеера): inline-плееры на странице серии
@@ -572,7 +698,26 @@ class CastEngine(
                                 Log.add("browser", "авто-play error: ${e.message}")
                             }
                         }
-                        scanPageJs()
+                        // v0.9.3 (#26): lazy-iframe — прокрутить iframe
+                        // в видимую область (loading=lazy /
+                        // IntersectionObserver), затем — обычный скан.
+                        // Скан — в колбэке, чтобы iframe успели начать
+                        // грузиться; ошибка JS — скан сразу.
+                        if (autoArmed && (!launched || preloadMode) &&
+                            (flowState == FlowState.LOADING_PAGE || flowState == FlowState.SEARCHING_VIDEO || preloadMode)
+                        ) {
+                            try {
+                                view.evaluateJavascript(LAZY_IFRAME_JS) { res ->
+                                    Log.add("browser", "lazy-iframe: $res")
+                                    scanPageJs()
+                                }
+                            } catch (e: Exception) {
+                                Log.add("browser", "lazy-iframe error: ${e.message}")
+                                scanPageJs()
+                            }
+                        } else {
+                            scanPageJs()
+                        }
                         // v0.8.0: YouTube — visitorData + hls из страницы.
                         if (youTubeVideoId != null) {
                             youTubePageLoaded = true
@@ -587,14 +732,17 @@ class CastEngine(
         } catch (e: Throwable) {
             browserFailed = "${e.javaClass.simpleName}: ${e.message}"
             Log.add("browser", "WebView НЕ создан ($browserFailed)")
-            listener.onError("Браузер (WebView) не запустился на этом телефоне: $browserFailed")
+            // v0.9.2: IDLE + drain (goToUrl следом молчит — см. ниже).
+            failFlow { listener.onError("Браузер (WebView) не запустился на этом телефоне: $browserFailed") }
         }
     }
 
     private fun goToUrl(raw: String) {
         val wv = webView
         if (wv == null) {
-            listener.onError("Браузер недоступен — поделись прямой ссылкой на видео")
+            // v0.9.2: если WebView не создался — ошибка уже отдана
+            // в ensureBrowser; второй раз не шумим и не дреним дважды.
+            if (browserFailed == null) failFlow { listener.onError("Браузер недоступен — поделись прямой ссылкой на видео") }
             return
         }
         var url = raw.trim()
@@ -616,6 +764,11 @@ class CastEngine(
                 }
                 for (v in result.videos) {
                     addCandidate(v.src, "JS: <video>${if (v.w > 0) " ${v.w}×${v.h}" else ""}", currentPageUrl)
+                }
+                // v0.9.2: теги <audio> — аудио-кандидаты (SoundCloud/
+                // Bandcamp/радио-страницы без <video>).
+                for (a in result.audios) {
+                    addCandidate(a.src, "JS: <audio>", currentPageUrl, isAudio = true)
                 }
                 // v0.8.0: ссылки из скриптов страницы (конфиги плееров) и
                 // относительные пути (JWPlayer src) — без нажатия play.
@@ -685,12 +838,22 @@ class CastEngine(
                         resolveNextEpisode()
                     }
                 }
+                // v0.9.3 (#23): JSON-LD VideoObject — contentUrl/embedUrl.
+                for (block in result.jsonld) {
+                    val videoUrl = VideoUrls.parseJsonLdVideoObject(block) ?: continue
+                    val abs = VideoUrls.resolveScriptUrl(currentPageUrl, videoUrl) ?: continue
+                    addCandidate(abs, "JS: JSON-LD", currentPageUrl)
+                }
+                // v0.9.3 (#24): oEmbed — JSON по link rel=alternate
+                // (скачивается отдельно, один раз за флоу на ссылку).
+                for (href in result.oembed) tryOembed(href)
                 // v0.9.0: последний скан одной строкой — в лог при таймауте.
                 if (!preloadMode) {
                     lastScanDiag = "videos=${result.videos.size} urls=${result.urls.size} " +
                         "rel=${result.rel.size} jwfeeds=${result.jwFeeds.size} " +
                         "iframes=${result.iframes.size} links=${result.links.size} " +
-                        "subs=${result.subs.size} " +
+                        "subs=${result.subs.size} jsonld=${result.jsonld.size} " +
+                        "oembed=${result.oembed.size} " +
                         "iframeSrcs=[${result.iframes.take(5).joinToString(", ") { VideoUrls.safeHost(it) }}]"
                 }
                 // v0.8.1: JWPlayer v2 feed (cdn.jwplayer.com/v2/playlists|media)
@@ -800,6 +963,26 @@ class CastEngine(
                         ui { addCandidate(streamUrl, "YouTube InnerTube (${client.name})", currentPageUrl ?: episodePageUrl, durationSec = parsed.lengthSeconds) }
                         return@thread
                     }
+                    // v0.9.2: YouTube Music — muxed/HLS нет, только
+                    // adaptive аудио (itag 141/251/140...): берём лучший
+                    // аудио-only формат тем же InnerTube-ответом.
+                    val audioPick = YouTube.pickAudioStream(parsed)
+                    if (audioPick != null) {
+                        val (streamUrl, kind) = audioPick
+                        Log.add("youtube", "${client.name}: аудио-поток найден ($kind)")
+                        ui { addCandidate(streamUrl, "YouTube InnerTube (${client.name})", currentPageUrl ?: episodePageUrl, durationSec = parsed.lengthSeconds, isAudio = true) }
+                        return@thread
+                    }
+                    // v0.9.3 (#1): DASH из раздельных дорожек — когда
+                    // ни HLS, ни muxed, ни аудио-only не дали потока,
+                    // но есть video-only + audio-only adaptive: прокси
+                    // синтезирует локальный .mpd (пара — в registerDash).
+                    val dashPair = YouTube.pickDashPair(parsed)
+                    if (dashPair != null) {
+                        Log.add("youtube", "${client.name}: DASH-пара найдена (${dashPair.video.height ?: "?"}p${dashPair.video.fps?.let { "@$it" } ?: ""} + аудио itag ${dashPair.audio.itag})")
+                        ui { addDashCandidate(dashPair, parsed.lengthSeconds) }
+                        return@thread
+                    }
                 }
                 // Оба клиента пусто — честно, только после загрузки страницы
                 // (иначе WebView ещё может дать visitorData/hls).
@@ -807,13 +990,44 @@ class CastEngine(
                     if (!youTubeEnded && !launched && candidates.isEmpty() && youTubePageLoaded) {
                         youTubeEnded = true
                         Log.add("youtube", "нет прямого потока (оба клиента)")
-                        listener.onError("YouTube: нет прямого потока")
+                        failFlow { listener.onError("YouTube: нет прямого потока") }
                     }
                 }
             } catch (e: Exception) {
                 Log.add("youtube", "InnerTube error: ${e.javaClass.simpleName}: ${e.message}")
             }
         }
+    }
+
+    /**
+     * v0.9.3 (#1): DASH-кандидат из пары YouTube adaptive (video-only +
+     * audio-only). Пара регистрируется в прокси (registerDash), VLC
+     * получает локальный /dash.mpd. Качество/fps — из видео-формата
+     * (в URL их нет — addCandidate берёт qualityOverride/fps явно).
+     * Прокси не запустился или треки не строятся — пара пропускается
+     * честно (без кандидата), флоу идёт дальше как без неё.
+     */
+    private fun addDashCandidate(pair: YouTube.DashPair, durationSec: Long?) {
+        val videoTrack = YouTube.videoDashTrack(pair.video) ?: run {
+            Log.add("youtube", "DASH: видео-трек не строится — пара пропущена")
+            return
+        }
+        val audioTrack = YouTube.audioDashTrack(pair.audio) ?: run {
+            Log.add("youtube", "DASH: аудио-трек не строится — пара пропущена")
+            return
+        }
+        val base = streamProxy.ensureStarted()
+        if (base == null || streamProxy.phoneIp == null) {
+            Log.add("youtube", "DASH: прокси не запустился — пара пропущена")
+            return
+        }
+        val dashId = "dash-${System.currentTimeMillis()}"
+        streamProxy.registerDash(dashId, videoTrack, audioTrack, durationSec)
+        dashIds.add(dashId)
+        val url = StreamProxy.proxyDashUrl(streamProxy.phoneIp!!, streamProxy.port, dashId)
+        val quality = pair.video.height?.let { "${it}p" }
+        addCandidate(url, "YouTube DASH", currentPageUrl ?: episodePageUrl, durationSec = durationSec, fps = pair.video.fps, qualityOverride = quality)
+        Log.add("youtube", "DASH-кандидат: ${quality ?: "?"} (id=$dashId)")
     }
 
     /** GET https://www.youtube.com/ → visitorData из HTML (bootstrap). */
@@ -887,6 +1101,90 @@ class CastEngine(
         }
     }
 
+    /**
+     * v0.9.3 (#24): oEmbed — скачать JSON по ссылке из страницы
+     * (link rel=alternate type=application/json+oembed), вытащить
+     * видео-URL (VideoUrls.parseOembedVideoUrl) в кандидаты. Один
+     * раз за флоу на ссылку. XML oEmbed — вне скопа (только JSON).
+     */
+    private fun tryOembed(href: String) {
+        val fresh = synchronized(oembedTried) { oembedTried.add(href) }
+        if (!fresh || launched) return
+        val page = currentPageUrl ?: episodePageUrl ?: return
+        val abs = VideoUrls.resolveScriptUrl(page, href) ?: run {
+            Log.add("browser", "oEmbed: не резолвится href: $href")
+            return
+        }
+        Log.add("browser", "oEmbed: $abs")
+        thread {
+            val json = try {
+                StreamProbe.fetchText(abs, page, pageCookies(page), 256 * 1024, 8000)
+            } catch (e: Exception) {
+                Log.add("browser", "oEmbed error: ${e.javaClass.simpleName}: ${e.message}")
+                null
+            }
+            if (json == null) {
+                Log.add("browser", "oEmbed: пусто (HTTP не 2xx / таймаут)")
+                return@thread
+            }
+            val videoUrl = VideoUrls.parseOembedVideoUrl(json)
+            if (videoUrl == null) {
+                Log.add("browser", "oEmbed: видео-URL нет")
+                return@thread
+            }
+            Log.add("browser", "oEmbed: видео: ${VideoUrls.safeHost(videoUrl)}")
+            ui {
+                if (!autoArmed || launched) return@ui
+                val absVideo = VideoUrls.resolveScriptUrl(page, videoUrl) ?: return@ui
+                addCandidate(absVideo, "JS: oEmbed", page)
+            }
+        }
+    }
+
+    /**
+     * v0.9.2: SoundCloud media API — GET .../stream/hls?client_id=…
+     * отдаёт JSON {"url": "<реальный плейлист .m3u8>"}. client_id —
+     * из запроса самого плеера (перехват сети / JS-скан), свой не
+     * нужен. Ошибка — просто ничего (честно, без выдуманного фолбэка).
+     */
+    private fun trySoundCloudMedia(apiUrl: String) {
+        thread {
+            try {
+                val json = StreamProbe.fetchText(apiUrl, null, null, 64 * 1024, 10_000) ?: return@thread
+                val streamUrl = AudioCast.extractSoundCloudStreamUrl(json) ?: run {
+                    Log.add("audio", "SoundCloud: в ответе media API нет url: ${VideoUrls.safeHost(apiUrl)}")
+                    return@thread
+                }
+                Log.add("audio", "SoundCloud: поток из media API: ${VideoUrls.safeHost(streamUrl)}")
+                ui { addCandidate(streamUrl, "SoundCloud", currentPageUrl ?: episodePageUrl, isAudio = true) }
+            } catch (e: Exception) {
+                Log.add("audio", "SoundCloud media error: ${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * v0.9.2: плейлист радио (.pls/.m3u) — текстовый файл со ссылкой
+     * на поток; резолвим первую ссылку и кастим её как аудио.
+     * Потока в плейлисте нет — честная ошибка, а не таймаут.
+     */
+    private fun tryRadioPlaylist(url: String) {
+        listener.onStatus("Плейлист радио — ищу поток…")
+        thread {
+            val text = StreamProbe.fetchText(url, null, null, 64 * 1024, 10_000)
+            val stream = text?.let { AudioCast.parseRadioPlaylist(it) }
+            ui {
+                if (stream == null) {
+                    Log.add("audio", "в плейлисте радио нет потока: ${VideoUrls.safeHost(url)}")
+                    failFlow { listener.onError("В плейлисте радио нет ссылки на поток") }
+                    return@ui
+                }
+                Log.add("audio", "радио: поток из плейлиста: ${VideoUrls.safeHost(stream)}")
+                startDirectAudioFlow(stream)
+            }
+        }
+    }
+
     /** Повторный JS-скан, пока ищем видео и не вышел дедлайн. */
     private fun scheduleRescan() {
         // v0.9.1: в режиме предзагрузки — сканы до дедлайна 30 с.
@@ -903,15 +1201,100 @@ class CastEngine(
         }
         if (!autoArmed || launched) return
         if (flowState != FlowState.LOADING_PAGE && flowState != FlowState.SEARCHING_VIDEO) return
+        rescanCount++
+        // v0.9.3 (хотфикс Instagram): WebView-скан пуст — прямой
+        // HTTP-fetch HTML с десктопным UA, без WebView. Instagram
+        // голому WebView отдаёт страницу входа без og:video, а
+        // десктопному запросу — страницу поста с og:video/video_url.
+        // Для instagram.com — в первую очередь (уже на 1-м рескане,
+        // ~3 с), для остальных — на 2-м (~6 с). Один раз за флоу.
+        if (candidates.isEmpty() && !directHtmlTried) {
+            val page = currentPageUrl ?: episodePageUrl ?: ""
+            val fetchAt = if (page.contains("instagram.com")) 1 else 2
+            if (rescanCount >= fetchAt) {
+                directHtmlTried = true
+                tryDirectHtmlFetch()
+            }
+        }
+        // v0.9.3 (#25): десктопный UA как fallback-проход в WebView —
+        // если мобильный UA видео не дал, перезагрузить ту же страницу
+        // с десктопным UA. После прямого fetch, один раз за флоу;
+        // дедлайн поиска (30 с) не трогаем.
+        if (candidates.isEmpty() && !desktopUaTried && rescanCount >= 3) {
+            desktopUaTried = true
+            switchToDesktopUaAndReload()
+        }
         rescanRunnable?.let { uiHandler.removeCallbacks(it) }
         val r = Runnable { scanPageJs() }
         rescanRunnable = r
         uiHandler.postDelayed(r, RESCAN_INTERVAL_MS)
     }
 
+    /**
+     * v0.9.3 (хотфикс Instagram): прямой HTTP-fetch HTML страницы с
+     * десктопным UA (StreamProbe.fetchText, без WebView) и парсинг
+     * og:video / og:video:secure_url / twitter:player:stream /
+     * "video_url" из сырого HTML теми же паттернами, что в SCAN_JS
+     * (VideoUrls.extractMetaVideoUrls). Куки страницы — как в
+     * pre-flight (если пользователь залогинен через fallback-браузер,
+     * Instagram отдаст пост, а не вход). Честно: если и тут страница
+     * входа (нет og:video) — ничего не найдено, обычный таймаут.
+     */
+    private fun tryDirectHtmlFetch() {
+        val page = currentPageUrl ?: episodePageUrl ?: return
+        Log.add("browser", "прямой fetch HTML с десктопным UA: ${VideoUrls.safeHost(page)}")
+        thread {
+            val html = try {
+                StreamProbe.fetchText(page, null, pageCookies(page), 2 * 1024 * 1024, 8000, DESKTOP_UA)
+            } catch (e: Exception) {
+                Log.add("browser", "прямой fetch error: ${e.javaClass.simpleName}: ${e.message}")
+                null
+            }
+            if (html == null) {
+                Log.add("browser", "прямой fetch: пусто (HTTP не 2xx / таймаут)")
+                return@thread
+            }
+            val urls = VideoUrls.extractMetaVideoUrls(html)
+            Log.add("browser", "прямой fetch: og:video/video_url — ${urls.size} (HTML ${html.length} Б)")
+            ui {
+                if (!autoArmed || launched) return@ui
+                for (u in urls) {
+                    val abs = VideoUrls.resolveScriptUrl(page, u) ?: continue
+                    addCandidate(abs, "HTML: og:video", page)
+                }
+            }
+        }
+    }
+
+    /**
+     * v0.9.3 (#25): перезагрузить текущую страницу в том же WebView
+     * с десктопным UA. onPageFinished → авто-play → scanPageJs, как
+     * при обычной загрузке; дедлайн поиска не сбрасывается.
+     */
+    private fun switchToDesktopUaAndReload() {
+        val wv = webView ?: return
+        val page = currentPageUrl ?: episodePageUrl ?: return
+        Log.add("browser", "десктопный UA: перезагружаю страницу: ${VideoUrls.safeHost(page)}")
+        listener.onStatus("Пробую десктопную версию страницы…")
+        try {
+            wv.settings.userAgentString = DESKTOP_UA
+            wv.loadUrl(page)
+        } catch (e: Exception) {
+            Log.add("browser", "desktop UA reload error: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
     @Synchronized
-    private fun addCandidate(url: String, source: String, referer: String?, directOnly: Boolean = false, durationSec: Long? = null, audioLabel: String? = null) {
+    private fun addCandidate(url: String, source: String, referer: String?, directOnly: Boolean = false, durationSec: Long? = null, audioLabel: String? = null, isAudio: Boolean = false, fps: Int? = null, qualityOverride: String? = null) {
         if (url.isBlank() || url.startsWith("blob:") || url.startsWith("data:")) return
+        // v0.9.2: SoundCloud media API — не поток, а JSON со ссылкой:
+        // резолвим отдельно (один раз за флоу), сам API-URL в
+        // кандидаты не идёт.
+        if (AudioCast.isSoundCloudMediaUrl(url)) {
+            val fresh = synchronized(soundCloudTried) { soundCloudTried.add(url) }
+            if (fresh) trySoundCloudMedia(url)
+            return
+        }
         // v0.8.0: перехват сети на googlevideo ловит только DASH-сегменты
         // (videoplayback без itag 18/22): одиночный сегмент в VLC не
         // играет. Прогрессивные ссылки берутся только из InnerTube
@@ -924,13 +1307,24 @@ class CastEngine(
             Log.add("browser", "пропущен placeholder (не настоящее видео): ${VideoUrls.safeHost(url)}")
             return
         }
-        // v0.1.3 (Failure A): в кандидаты — только настоящие видео-URL.
-        if (!VideoUrls.isVideoUrl(url)) {
+        // v0.9.2: аудио — в кандидаты наравне с видео (видео в
+        // приоритете при выборе — AutoCast.orderedAttempts); аудио
+        // определяется явно, по URL или по странице аудио-сервиса.
+        val audio = isAudio || AudioCast.isAudioUrl(url) || audioPage
+        // v0.1.3 (Failure A): в кандидаты — только настоящие видео/аудио-URL.
+        if (!audio && !VideoUrls.isVideoUrl(url)) {
             Log.add("browser", "не видео-ссылка, в кандидаты не добавляю ($source): ${VideoUrls.safeHost(url)}")
             return
         }
         if (candidates.any { it.url == url }) return
-        val c = VideoCandidate(url, VideoUrls.formatOf(url), VideoUrls.qualityOf(url), referer ?: currentPageUrl, source, directOnly = directOnly, durationSec = durationSec, audioLabel = audioLabel)
+        val format = if (audio) {
+            val f = VideoUrls.formatOf(url)
+            if (f == "?") "audio" else f
+        } else VideoUrls.formatOf(url)
+        val quality = qualityOverride ?: if (audio) AudioCast.audioQualityLabel(url) else VideoUrls.qualityOf(url)
+        // v0.9.3 (#4): fps из URL (60fps/720p60) — tie-break в AutoCast;
+        // явный fps от источника (YouTube adaptive) — приоритет.
+        val c = VideoCandidate(url, format, quality, referer ?: currentPageUrl, source, directOnly = directOnly, durationSec = durationSec, audioLabel = audioLabel, isAudio = audio, fps = fps ?: VideoUrls.fpsOf(url))
         // v0.9.1: предзагрузка следующей серии — кандидаты в отдельный
         // бакет, без авто-запуска и без уведомления хоста.
         if (preloadMode) {
@@ -943,7 +1337,7 @@ class CastEngine(
         if (candidates.isEmpty()) firstCandidateAtMs = System.currentTimeMillis()
         candidates.add(0, c)
         if (candidates.size > 20) candidates.removeAt(candidates.size - 1)
-        Log.add("browser", "найдено видео [${c.format} ${c.quality}] ($source): ${VideoUrls.safeHost(url)}")
+        Log.add("browser", "найдено ${if (audio) "аудио" else "видео"} [${c.format} ${c.quality}] ($source): ${VideoUrls.safeHost(url)}")
         ui { listener.onCandidatesChanged(candidates.toList()) }
         // v0.9.1: master-first по содержимому — HLS-вариант без маркера
         // в URL (Twitch/Kick) может оказаться мастером; проверяем
@@ -1024,11 +1418,62 @@ class CastEngine(
     private fun doAutoLaunch(force: Boolean = false) {
         if (!autoArmed && !force) return
         if (launched && !force) return
-        retryAttempts = AutoCast.orderedAttempts(candidates, preferredAudio = preferredDubForCurrent())
-        if (retryAttempts.isEmpty()) return
-        retryIndex = 0
+        val attempts = AutoCast.orderedAttempts(candidates, preferredAudio = preferredDubForCurrent())
+        if (attempts.isEmpty()) return
         if (force) launched = false
-        launchAttempt()
+        // v0.9.3 (#5): проба зеркал — в фоне, чтобы не блокировать UI
+        // (до 2.5 с). Поколение — защита от двойного doAutoLaunch:
+        // устаревший поток не трогает retryAttempts.
+        val gen = ++autoLaunchGen
+        thread {
+            val reordered = reorderByMirrorLatency(attempts)
+            ui {
+                if (gen != autoLaunchGen) return@ui
+                if (!autoArmed && !force) return@ui
+                if (launched && !force) return@ui
+                retryAttempts = reordered
+                retryIndex = 0
+                launchAttempt()
+            }
+        }
+    }
+
+    /**
+     * v0.9.3 (#5): проба скорости зеркал. Когда у топ-кандидатов
+     * равный счёт (тот же формат+качество, разные хосты — зеркала
+     * Kodik и т.п.), меряем время первого байта (Range 0-0,
+     * StreamProbe.probeFirstByteMs) и переставляем группу по
+     * латентности. Пробы — параллельно, общий дедлайн ~2.5 с;
+     * не дождались/нет данных — порядок как был. Только топ-группа
+     * (≤3 попытки), один раз за авто-запуск. Кандидаты через
+     * локальный прокси (один хост — телефон) не меряются: их не
+     * различить, порядок как был.
+     */
+    private fun reorderByMirrorLatency(attempts: List<VideoCandidate>): List<VideoCandidate> {
+        if (attempts.size < 2) return attempts
+        val pref = preferredDubForCurrent()
+        val topScore = AutoCast.score(attempts[0], pref)
+        val tied = attempts.takeWhile { AutoCast.score(it, pref) == topScore }
+        if (tied.size < 2) return attempts
+        val hosts = tied.map { VideoUrls.safeHost(it.url) }.toSet()
+        if (hosts.size < 2) return attempts
+        val latencies = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        val threads = tied.map { c ->
+            thread {
+                val ms = StreamProbe.probeFirstByteMs(c.url, c.referer, pageCookies(c.url))
+                if (ms != null) latencies[c.url] = ms
+            }
+        }
+        val deadline = System.currentTimeMillis() + MIRROR_PROBE_DEADLINE_MS
+        for (t in threads) {
+            val left = deadline - System.currentTimeMillis()
+            if (left <= 0) break
+            t.join(left)
+        }
+        if (latencies.isEmpty()) return attempts
+        val sorted = tied.sortedBy { latencies[it.url] ?: Long.MAX_VALUE }
+        Log.add("retry", "проба зеркал: " + sorted.joinToString(", ") { "${VideoUrls.safeHost(it.url)}=${latencies[it.url]?.let { "$it мс" } ?: "?"}" })
+        return sorted + attempts.drop(tied.size)
     }
 
     /**
@@ -1039,14 +1484,28 @@ class CastEngine(
     private fun launchAttempt() {
         val c = retryAttempts.getOrNull(retryIndex)
         if (c == null) {
-            launched = false
-            flowState = FlowState.SEARCHING_VIDEO
             Log.add("retry", "все ${retryAttempts.size} попыток исчерпаны — видео недоступно")
-            listener.onLaunchFailed("Видео недоступно — ни один источник не играет")
+            // v0.9.2: IDLE + drain, а не зависший SEARCHING_VIDEO.
+            failFlow { listener.onLaunchFailed("Видео недоступно — ни один источник не играет") }
             return
         }
         Log.add("retry", "попытка ${retryIndex + 1}/${retryAttempts.size}: ${VideoUrls.safeHost(c.url)}")
         thread {
+            // v0.9.3 (#14): VLC установлен на ТВ? — один раз за флоу,
+            // до первой попытки. false — честная ошибка «VLC не
+            // установлен», без бессмысленного ретрая по кандидатам;
+            // null (не удалось проверить) — запускаем как обычно.
+            if (!vlcChecked) {
+                vlcChecked = true
+                val installed = checkVlcInstalledOnce()
+                if (installed == false) {
+                    Log.add("vlc", "VLC не установлен на ТВ — каст невозможен")
+                    ui { failFlow { listener.onError("VLC не установлен на Apple TV — установи VLC из App Store, затем попробуй ещё раз") } }
+                    return@thread
+                }
+                if (installed == null) Log.add("vlc", "установку VLC проверить не удалось — запускаю как обычно")
+                else Log.add("vlc", "VLC установлен ✓")
+            }
             val probe = StreamProbe.probeUrl(c.url, c.referer, pageCookies(c.url))
             ui {
                 if (probe != StreamProbe.ProbeResult.OK) {
@@ -1060,10 +1519,27 @@ class CastEngine(
         }
     }
 
+    /**
+     * v0.9.3 (#14): одноразовая проверка установки VLC (Companion
+     * app_list) — true/false/null (неизвестно). Без выбранного ТВ —
+     * null (проверка невозможна, не блокирует каст).
+     */
+    private fun checkVlcInstalledOnce(): Boolean? {
+        val host = selectedDevice?.host ?: return null
+        return try {
+            CompanionClient(host, credStore = credStore).checkVlcInstalled()
+        } catch (e: Exception) {
+            Log.add("vlc", "app_list check error: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        }
+    }
+
     // ---------- Авто-следующая серия (v0.9.0) ----------
 
     /** Следующий эпизод из ссылок <a> страницы (EpisodeList.parse). */
     private fun resolveNextEpisode() {
+        // v0.9.2: аудио-страницы — не сериалы: «следующая серия» не ищется.
+        if (audioPage) return
         val page = episodePageUrl ?: currentPageUrl ?: return
         val next = EpisodeList.parse(page, episodeLinks)?.nextUrl ?: return
         if (next != nextEpisodeUrl) {
@@ -1173,6 +1649,37 @@ class CastEngine(
     }
 
     /**
+     * v0.9.2: запустить следующий элемент очереди, если есть.
+     * Возвращает true, если что-то запущено. Используется и при
+     * конце воспроизведения, и при терминальной ошибке (failFlow).
+     */
+    private fun drainQueue(): Boolean {
+        val queued = queue.poll() ?: return false
+        listener.onQueueChanged(queue.size)
+        Log.add("queue", "запускаю из очереди (осталось ${queue.size})")
+        when (queued) {
+            is QueueItem.Url -> startShare(queued.url)
+            is QueueItem.File -> startFileShare(queued.uri, queued.displayName, queued.isAudio)
+        }
+        return true
+    }
+
+    /**
+     * v0.9.2: терминальная ошибка флоу (launch failed, onError,
+     * timeout, TV unreachable): состояние — в IDLE, а не зависшее
+     * SEARCHING_VIDEO без таймера, и запуск следующего элемента
+     * очереди, если есть. Уведомление слушателю (notify) — только
+     * если очередь пуста. Вызывать только с UI-потока (drain
+     * трогает WebView через startShare/startPageFlow).
+     */
+    private fun failFlow(notify: () -> Unit) {
+        launched = false
+        cancelNextTimer()
+        flowState = FlowState.IDLE
+        if (!drainQueue()) notify()
+    }
+
+    /**
      * v0.9.1: конец воспроизведения (таймер). Порядок: очередь
      * шарингов → предзагруженная следующая серия → авто-следующая
      * по ссылкам → больше нечего (сервис останавливается).
@@ -1184,16 +1691,7 @@ class CastEngine(
         watchStartMs = 0L
         launched = false
         cancelNextTimer()
-        val queued = queue.poll()
-        if (queued != null) {
-            listener.onQueueChanged(queue.size)
-            Log.add("queue", "конец видео — запускаю из очереди (осталось ${queue.size})")
-            when (queued) {
-                is QueueItem.Url -> startShare(queued.url)
-                is QueueItem.File -> startFileShare(queued.uri, queued.displayName)
-            }
-            return
-        }
+        if (drainQueue()) return
         if (preloadMode) finishPreload()
         val pre = preloadedNext
         if (pre != null) {
@@ -1250,21 +1748,27 @@ class CastEngine(
         if (!credStore.has(CompanionClient.companionIdentity(dev.host))) {
             pendingLaunchUrl = c.url
             pendingLaunchReferer = c.referer
+            pendingLaunchIsAudio = c.isAudio
             flowState = FlowState.NEED_PAIRING
             listener.onNeedPairing(dev.host, c.url)
             Log.add("vlc", "Companion не спарен — показываю спаривание, запуск отложен")
             return
         }
-        launchVlc(c.url, c.referer, "видео")
+        launchVlc(c.url, c.referer, if (c.isAudio) "аудио" else "видео")
     }
 
     /**
      * v0.9.1: проверка ТВ заранее — до 30-секундного таймаута детекта.
      * Запомненный ТВ: TCP-проба 2 с → если не отвечает и спарен —
      * пробуждение Companion turn_on → опрос готовности до 30 с.
-     * Не отвечает и после пробуждения — честное onTvUnreachable,
-     * а не молчаливый таймаут. Запомненного ТВ нет — mDNS (ensureTv)
-     * и есть проверка.
+     * v0.9.2 (регрессия 0.9.1, каст не шёл НИОТКУДА): если probe и
+     * wake не сработали — НЕ onTvUnreachable сразу, а fallback на
+     * mDNS (fallbackToDiscovery): спящий ТВ после sleep-proxy виден
+     * в mDNS, даже если прямой probe 7000 и Companion молчали.
+     * onTvUnreachable — только если и mDNS никого не нашёл.
+     * ВАЖНО: wake через Companion работает только при живом
+     * Companion (connect на 49153): спящий ТВ им не разбудить —
+     * он будится коннектом после mDNS (sleep proxy), а не _hidC.
      */
     private fun ensureTvReady(onReady: () -> Unit) {
         val rem = loadRemembered()
@@ -1282,38 +1786,55 @@ class CastEngine(
             }
             Log.add("tv", "запомненный ТВ не отвечает — пробую разбудить: ${rem.host}")
             val paired = credStore.has(CompanionClient.companionIdentity(rem.host))
-            if (!paired) {
-                Log.add("tv", "ТВ не отвечает и не спарен — будить нечем")
-                ui { listener.onTvUnreachable() }
-                return@thread
-            }
-            ui { listener.onStatus("ТВ спит — бужу его…") }
-            val woken = try {
-                CompanionClient(rem.host, credStore = credStore).wakeTv()
-            } catch (e: Exception) {
-                Log.add("tv", "wake error: ${e.javaClass.simpleName}: ${e.message}")
-                false
-            }
-            Log.add("tv", "wake: $woken — жду готовности до 30 с")
-            val deadline = System.currentTimeMillis() + 30_000L
-            var ok = false
-            while (System.currentTimeMillis() < deadline) {
-                Thread.sleep(2000)
-                if (TvCheck.probe(rem.host, 7000, 2000)) {
-                    ok = true
-                    break
+            if (paired) {
+                ui { listener.onStatus("ТВ спит — бужу его…") }
+                val woken = try {
+                    CompanionClient(rem.host, credStore = credStore).wakeTv()
+                } catch (e: Exception) {
+                    Log.add("tv", "wake error: ${e.javaClass.simpleName}: ${e.message}")
+                    false
                 }
-            }
-            if (ok) {
-                ui {
-                    selectDevice(rememberedManualDevice(rem.host, rem))
-                    onReady()
+                Log.add("tv", "wake: $woken — жду готовности до 30 с")
+                val deadline = System.currentTimeMillis() + 30_000L
+                var ok = false
+                while (System.currentTimeMillis() < deadline) {
+                    Thread.sleep(2000)
+                    if (TvCheck.probe(rem.host, 7000, 2000)) {
+                        ok = true
+                        break
+                    }
                 }
-            } else {
+                if (ok) {
+                    ui {
+                        selectDevice(rememberedManualDevice(rem.host, rem))
+                        onReady()
+                    }
+                    return@thread
+                }
                 Log.add("tv", "ТВ не проснулся за 30 с: ${rem.host}")
-                ui { listener.onTvUnreachable() }
+            } else {
+                Log.add("tv", "ТВ не отвечает и не спарен — будить нечем")
             }
+            // v0.9.2: probe+wake не сработали — fallback на mDNS,
+            // а не убийство каста (см. шапку функции).
+            ui { fallbackToDiscovery(onReady) }
         }
+    }
+
+    /**
+     * v0.9.2: fallback pre-check — запомненный host мёртв, ищем ТВ
+     * заново по mDNS. Нашли — selectDevice обновляет запомненный
+     * host (saveRemembered) и onReady продолжает запуск. Никого —
+     * tvFallbackNone: честный onTvUnreachable с drain очереди.
+     */
+    private fun fallbackToDiscovery(onReady: () -> Unit) {
+        Log.add("tv", "fallback: ищу ТВ заново по mDNS")
+        selectedDevice = null
+        tvCallback = onReady
+        tvFallbackNone = { failFlow { listener.onTvUnreachable() } }
+        flowState = FlowState.SEARCHING_TV
+        listener.onStatus("ТВ не отвечает — ищу его заново в сети…")
+        startAutoDiscovery()
     }
 
     /**
@@ -1334,10 +1855,12 @@ class CastEngine(
         }
         // v0.9.1: субтитры — с учётом памяти сериала (вкл/выкл + язык).
         // Запомненный язык — первым в списке (sub=) и DEFAULT=YES в мастере.
+        // v0.9.2: аудио — без субтитров вообще (дорожки — только у видео).
+        val audioLaunch = selectedCandidate?.isAudio == true
         val subsPref = currentSeriesKey?.let { memory.subsPref(it) }
         val subsEnabled = subsPref?.enabled ?: true
         val preferredLang = subsPref?.lang
-        val effectiveSubs = if (subsEnabled) {
+        val effectiveSubs = if (audioLaunch) emptyList() else if (subsEnabled) {
             if (preferredLang.isNullOrBlank()) currentSubs
             else currentSubs.sortedByDescending { it.lang.equals(preferredLang, ignoreCase = true) }
         } else emptyList()
@@ -1454,8 +1977,8 @@ class CastEngine(
                         retryIndex++
                         launchAttempt()
                     } else {
-                        flowState = FlowState.SEARCHING_VIDEO
-                        listener.onLaunchFailed("Запуск не удался: ${e.message}")
+                        // v0.9.2: IDLE + drain, а не зависший SEARCHING_VIDEO.
+                        failFlow { listener.onLaunchFailed("Запуск не удался: ${e.message}") }
                     }
                 }
             }
@@ -1625,32 +2148,54 @@ class CastEngine(
     // ---------- v0.9.1: шаринг видеофайлов (Telegram/галерея) ----------
 
     /**
-     * Шаринг видеофайла (content:// URI). Возвращает false, если
-     * файл встал в очередь (сейчас идёт другое видео).
+     * Шаринг файла: content:// URI (fallback) или абсолютный путь
+     * к копии из cacheDir/aircast-temp (основной путь с v0.9.2:
+     * ShareReceiverActivity копирует файл, пока grant жив).
+     * Возвращает false, если файл встал в очередь (сейчас идёт
+     * другое видео).
+     * v0.9.2: то же — для аудиофайлов (галерея/файловый менеджер):
+     * isAudio — из MIME шаринга (надёжнее расширения в имени).
      */
-    fun startFileShare(uri: String, displayName: String?): Boolean {
+    fun startFileShare(uri: String, displayName: String?, isAudio: Boolean = false): Boolean {
         if (isBusy()) {
-            queue.add(QueueItem.File(uri, displayName))
+            queue.add(QueueItem.File(uri, displayName, isAudio))
             listener.onQueueChanged(queue.size)
             listener.onStatus(AutoCast.notifQueuedText(queue.size))
             Log.add("queue", "файл в очереди (#${queue.size}): ${displayName ?: uri}")
             return false
         }
-        startFileShareInternal(uri, displayName)
+        startFileShareInternal(uri, displayName, isAudio)
         return true
     }
 
-    private fun startFileShareInternal(uri: String, displayName: String?) {
+    private fun startFileShareInternal(uri: String, displayName: String?, isAudio: Boolean = false) {
         resetFlow()
+        // v0.9.2: аудио — по MIME шаринга или по расширению имени.
+        currentFileIsAudio = isAudio || AudioCast.isAudioFileName(displayName)
         autoArmed = true
         flowState = FlowState.SEARCHING_VIDEO
         searchDeadlineMs = System.currentTimeMillis() + SEARCH_TIMEOUT_MS
-        listener.onStatus("Файл получен — запускаю…")
+        listener.onStatus(if (currentFileIsAudio) "Аудиофайл получен — запускаю…" else "Файл получен — запускаю…")
         try {
-            val parsedUri = Uri.parse(uri)
-            val opened = openFileSource(parsedUri)
+            // v0.9.2: путь к копии из ShareReceiverActivity — файл
+            // читается напрямую (JavaFileSource), без openFileDescriptor:
+            // grant до сервиса не доходит (баг 0.9.1 из Telegram).
+            // temp — сама копия: удалится в cleanupCurrentFile.
+            val opened = if (uri.startsWith("/")) {
+                val f = File(uri)
+                if (!f.exists() || !f.isFile) {
+                    Log.add("file", "путь к копии не существует: $uri")
+                    listener.onFileError("Не удалось открыть файл")
+                    return
+                }
+                Log.add("file", "файл по пути: ${f.name}, ${f.length()} Б")
+                Pair(JavaFileSource(f), f)
+            } else {
+                val parsedUri = Uri.parse(uri)
+                openFileSource(parsedUri)
+            }
             if (opened == null) {
-                listener.onError("Не удалось открыть файл")
+                failFlow { listener.onFileError("Не удалось открыть файл") }
                 return
             }
             val (source, tempFile) = opened
@@ -1661,24 +2206,26 @@ class CastEngine(
                 source.close()
                 tempFile?.delete()
                 currentFileTemp = null
-                listener.onError("Прокси не запустился — файл не отправить")
+                failFlow { listener.onFileError("Прокси не запустился — файл не отправить") }
                 return
             }
             streamProxy.registerFileSource(fileId, source)
             currentFileId = fileId
-            val ext = displayName?.substringAfterLast('.', "")?.takeIf { it.isNotBlank() && it.length <= 5 } ?: "mp4"
+            val ext = displayName?.substringAfterLast('.', "")?.takeIf { it.isNotBlank() && it.length <= 5 }
+                ?: if (currentFileIsAudio) "mp3" else "mp4"
             val fileUrl = StreamProxy.proxyFileUrl(streamProxy.phoneIp!!, streamProxy.port, fileId, ext)
-            // Длительность mp4 — из первых байт (mvhd), для таймера конца.
-            val dur = mp4DurationFromSource(source)
-            currentTitleOverride = displayName?.let { TitleCleaner.cleanFileName(it) } ?: "Видео"
+            // Длительность файла — для таймера конца (mp4/m4a — mvhd,
+            // mp3 — Xing/CBR-оценка; остальное — cap-таймер 3 ч).
+            val dur = audioFileDuration(source, ext)
+            currentTitleOverride = displayName?.let { TitleCleaner.cleanFileName(it) } ?: if (currentFileIsAudio) "Аудио" else "Видео"
             // Позиция для файла — по URI (mp4 resume нет, но позиция
             // запоминается; при повторном шаринге — с начала, честно).
             watchPageUrl = uri
-            addCandidate(fileUrl, "файл из Telegram/галереи", null, durationSec = dur)
+            addCandidate(fileUrl, if (currentFileIsAudio) "аудиофайл" else "файл из Telegram/галереи", null, durationSec = dur, isAudio = currentFileIsAudio)
             startTicker()
         } catch (e: Exception) {
             Log.add("file", "открытие файла error: ${e.javaClass.simpleName}: ${e.message}")
-            listener.onError("Не удалось открыть файл: ${e.message}")
+            failFlow { listener.onFileError("Не удалось открыть файл: ${e.message}") }
         }
     }
 
@@ -1716,10 +2263,25 @@ class CastEngine(
         return Pair(JavaFileSource(tmp), tmp)
     }
 
-    private fun mp4DurationFromSource(source: FileSource): Long? {
+    /**
+     * v0.9.2: длительность файла по расширению — для таймера конца.
+     * mp4/m4a/mov — mvhd из первых 128 КБ; mp3 — Xing/CBR-оценка
+     * по первым 64 КБ и размеру; остальное (flac/ogg/wav) — null
+     * (cap-таймер 3 ч, честно).
+     */
+    private fun audioFileDuration(source: FileSource, ext: String): Long? {
         return try {
-            val head = source.readAt(0, 128 * 1024) ?: return null
-            StreamProbe.mp4DurationSec(head)
+            when (ext.toLowerCase()) {
+                "mp4", "m4a", "mov" -> {
+                    val head = source.readAt(0, 128 * 1024) ?: return null
+                    StreamProbe.mp4DurationSec(head)
+                }
+                "mp3" -> {
+                    val head = source.readAt(0, 64 * 1024) ?: return null
+                    AudioCast.mp3DurationSec(head, source.size())
+                }
+                else -> null
+            }
         } catch (e: Exception) {
             null
         }
@@ -1752,7 +2314,7 @@ class CastEngine(
         listener.onStatus("Плейлист YouTube — загружаю список…")
         val pid = YouTubePlaylist.extractPlaylistId(url)
         if (pid == null) {
-            listener.onError("Плейлист YouTube: не удалось вытащить id")
+            failFlow { listener.onError("Плейлист YouTube: не удалось вытащить id") }
             return
         }
         thread {
@@ -1765,7 +2327,7 @@ class CastEngine(
             val ids = YouTubePlaylist.parseVideoIds(body)
             ui {
                 if (ids.isEmpty()) {
-                    listener.onError("Плейлист YouTube: список не загрузился")
+                    failFlow { listener.onError("Плейлист YouTube: список не загрузился") }
                     return@ui
                 }
                 val rest = ids.drop(1).map { QueueItem.Url(YouTubePlaylist.watchUrl(it)) }
@@ -1850,6 +2412,7 @@ class CastEngine(
         setDeviceFromHost(host)
         val cb = tvCallback
         tvCallback = null
+        tvFallbackNone = null
         if (cb == null) return false
         cb.invoke()
         return true
@@ -1898,9 +2461,18 @@ class CastEngine(
             devices.isEmpty() -> {
                 listener.onStatus("ТВ не найден — проверь, что ТВ включён")
                 Log.add("tv", "авто-поиск: ТВ не найден")
+                // v0.9.2: fallback pre-check — mDNS тоже пуст: честный
+                // onTvUnreachable с drain очереди, а не зависший
+                // SEARCHING_TV без таймера. Обычный ensureTv (без
+                // fallback) — как раньше, только статус.
+                val none = tvFallbackNone
+                tvFallbackNone = null
+                tvCallback = null
+                none?.invoke()
             }
             devices.size == 1 -> {
                 selectDevice(devices.values.first())
+                tvFallbackNone = null
                 val cb = tvCallback
                 tvCallback = null
                 cb?.invoke()
@@ -1999,7 +2571,9 @@ class CastEngine(
                         pendingLaunchUrl = null
                         val pendingRef = pendingLaunchReferer
                         pendingLaunchReferer = null
-                        launchVlc(pending, pendingRef, "видео")
+                        val pendingAudio = pendingLaunchIsAudio
+                        pendingLaunchIsAudio = false
+                        launchVlc(pending, pendingRef, if (pendingAudio) "аудио" else "видео")
                     }
                 }
             } catch (e: Exception) {

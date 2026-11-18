@@ -15,9 +15,13 @@ import java.io.FileNotFoundException
  * v0.9.0 — минимальный ContentProvider для шаринга aircast.log.
  * В проекте нет AndroidX и нет Gradle (сборка aapt2 + kotlinc),
  * поэтому androidx FileProvider недоступен — свой провайдер на
- * голом ContentProvider. Отдаёт ТОЛЬКО файл filesDir/aircast.log,
- * любой другой путь — FileNotFoundException. exported=false,
- * grantUriPermissions=true (доступ — только через URI из share intent).
+ * голом ContentProvider. Отдаёт ТОЛЬКО три своих файла, read-only:
+ * filesDir/aircast.log, APK обновления (external files/Download/
+ * VLC-Cast-update.apk, v0.9.3 — самообновление внутри приложения)
+ * и файл бэкапа спаривания (filesDir/aircast-pairing-backup.txt,
+ * v0.9.3 #27). Любой другой путь — FileNotFoundException.
+ * exported=false, grantUriPermissions=true (доступ — только через
+ * URI из intent).
  *
  * Authority: com.alexey.aircast.logfile (см. AndroidManifest.xml).
  */
@@ -26,20 +30,43 @@ class LogFileProvider : ContentProvider() {
     companion object {
         const val AUTHORITY = "com.alexey.aircast.logfile"
         const val LOG_NAME = "aircast.log"
+        /** v0.9.3: имя APK обновления (AppUpdater.UPDATE_APK_NAME). */
+        const val UPDATE_NAME = "VLC-Cast-update.apk"
+        /** v0.9.3 (#27): имя файла бэкапа спаривания. */
+        const val BACKUP_NAME = "aircast-pairing-backup.txt"
 
         fun uriForFile(ctx: Context, file: File): Uri =
             Uri.parse("content://$AUTHORITY/$LOG_NAME")
 
         fun logFile(ctx: Context): File = File(ctx.filesDir, LOG_NAME)
+
+        /** v0.9.3: URI для промпта установки скачанного APK. */
+        fun uriForUpdateApk(ctx: Context): Uri =
+            Uri.parse("content://$AUTHORITY/$UPDATE_NAME")
+
+        /** v0.9.3: файл APK обновления (external files/Download). */
+        fun updateFile(ctx: Context): File =
+            File(ctx.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), UPDATE_NAME)
+
+        /** v0.9.3 (#27): URI файла бэкапа спаривания (share sheet). */
+        fun uriForBackup(ctx: Context): Uri =
+            Uri.parse("content://$AUTHORITY/$BACKUP_NAME")
+
+        /** v0.9.3 (#27): файл бэкапа спаривания (filesDir). */
+        fun backupFile(ctx: Context): File = File(ctx.filesDir, BACKUP_NAME)
     }
 
     override fun onCreate(): Boolean = true
 
     private fun resolve(uri: Uri): File {
         if (uri.authority != AUTHORITY) throw FileNotFoundException("unknown authority: ${uri.authority}")
-        if (uri.lastPathSegment != LOG_NAME) throw FileNotFoundException("unknown file: ${uri.lastPathSegment}")
-        val file = logFile(context!!)
-        if (!file.exists()) throw FileNotFoundException("log not found")
+        val file = when (uri.lastPathSegment) {
+            LOG_NAME -> logFile(context!!)
+            UPDATE_NAME -> updateFile(context!!)
+            BACKUP_NAME -> backupFile(context!!)
+            else -> throw FileNotFoundException("unknown file: ${uri.lastPathSegment}")
+        }
+        if (!file.exists()) throw FileNotFoundException("file not found: ${uri.lastPathSegment}")
         return file
     }
 
@@ -56,12 +83,13 @@ class LogFileProvider : ContentProvider() {
         sortOrder: String?,
     ): Cursor? {
         val file = resolve(uri)
+        val name = uri.lastPathSegment ?: LOG_NAME
         val cols = projection ?: arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
         val cursor = MatrixCursor(cols)
         val row = Array<Any?>(cols.size) { null }
         for (i in cols.indices) {
             row[i] = when (cols[i]) {
-                OpenableColumns.DISPLAY_NAME -> LOG_NAME
+                OpenableColumns.DISPLAY_NAME -> name
                 OpenableColumns.SIZE -> file.length()
                 else -> null
             }
@@ -70,7 +98,10 @@ class LogFileProvider : ContentProvider() {
         return cursor
     }
 
-    override fun getType(uri: Uri): String? = "text/plain"
+    override fun getType(uri: Uri): String? = when (uri.lastPathSegment) {
+        UPDATE_NAME -> "application/vnd.android.package-archive"
+        else -> "text/plain"
+    }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? =
         throw UnsupportedOperationException("read-only")

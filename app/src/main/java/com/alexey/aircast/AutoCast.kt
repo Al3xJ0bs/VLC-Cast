@@ -11,7 +11,7 @@ package com.alexey.aircast
  */
 object AutoCast {
     /** Прямая ссылка на видео (запускать сразу, без загрузки страницы). */
-    enum class ShareKind { DIRECT_VIDEO, PAGE, NOT_A_URL }
+    enum class ShareKind { DIRECT_VIDEO, DIRECT_AUDIO, PAGE, NOT_A_URL }
 
     private val URL_RE = Regex("https?://[^\\s\"'<>]+")
 
@@ -27,10 +27,12 @@ object AutoCast {
         return m.value.trimEnd('.', ',', ')', ']', ';', ':')
     }
 
-    /** Прямая ссылка на видео — или страница с плеером. */
+    /** Прямая ссылка на видео/аудио — или страница с плеером. */
     fun classifyUrl(url: String): ShareKind {
         val u = url.trim()
         if (u.isEmpty() || !u.startsWith("http")) return ShareKind.NOT_A_URL
+        // v0.9.2: аудио — первым (sndcdn .m3u8 — аудио, а не видео).
+        if (AudioCast.isAudioUrl(u)) return ShareKind.DIRECT_AUDIO
         return if (VideoUrls.isVideoUrl(u)) ShareKind.DIRECT_VIDEO else ShareKind.PAGE
     }
 
@@ -93,17 +95,25 @@ object AutoCast {
     /** v0.9.1: действие в уведомлении — переключить субтитры. */
     fun notifToggleSubsText(enabled: Boolean): String =
         if (enabled) "Субтитры: вкл" else "Субтитры: выкл"
+    /** v0.9.2: аудио (прогресс и успех без названия). */
+    fun notifProgressAudioText(): String = "Отправляю аудио на Apple TV…"
+    fun notifSuccessAudioText(): String = "Аудио запущено на Apple TV ✓"
+    /** v0.9.3: сервис ждёт копию расшаренного файла (FILE_WAIT). */
+    fun notifCopyingFileText(): String = "Копирую файл…"
 
     // ---------- авто-выбор кандидата ----------
 
     /**
      * Ранг формата: HLS первым (адаптивный поток, у Kodik/Alloha —
      * всегда .m3u8), затем mp4, остальное — последним.
+     * v0.9.2: аудио-форматы — ранг 2, как mp4 (внутри аудио-пула
+     * решает качество/битрейт).
      */
     fun formatRank(format: String): Int = when {
         format.startsWith("m3u8") -> 3
         format.startsWith("mpd") -> 3 // v0.8.1: DASH .mpd — адаптивный манифест, как HLS
         format == "mp4" -> 2
+        format in listOf("mp3", "aac", "flac", "ogg", "m4a", "wav", "opus", "mka", "audio") -> 2
         else -> 1
     }
 
@@ -115,10 +125,16 @@ object AutoCast {
         "720p" -> 3
         "480p" -> 2
         "360p" -> 1
+        // v0.9.2: аудио — FLAC (без потерь) выше любого битрейта.
+        "FLAC" -> 6
+        "320 kbps" -> 5
+        "256 kbps" -> 4
+        "192 kbps" -> 3
+        "128 kbps" -> 2
         else -> 0
     }
 
-    private fun score(c: VideoCandidate, preferredAudio: String? = null): Int {
+    fun score(c: VideoCandidate, preferredAudio: String? = null): Int {
         var s = formatRank(c.format) * 10 + qualityRank(c.quality)
         // v0.9.1: запоминание озвучки — кандидат с той же дорожкой,
         // что в прошлый раз, получает +5 (выше любого качества).
@@ -135,6 +151,8 @@ object AutoCast {
      * v0.9.1: мастер-пул — по полю isMaster (а не только по URL:
      * движок поднимает флаг и по содержимому плейлиста, Twitch/Kick);
      * preferredAudio — запомненная озвучка (+5 к счёту).
+     * v0.9.2: видео в приоритете — аудио-пул только если видео нет
+     * вообще (страница с видео и фоновым mp3 не кастит mp3).
      */
     fun orderedAttempts(
         candidates: List<VideoCandidate>,
@@ -143,10 +161,16 @@ object AutoCast {
     ): List<VideoCandidate> {
         val usable = candidates.filter { !VideoUrls.isPlaceholder(it.url) && !it.directOnly }
         if (usable.isEmpty()) return emptyList()
-        val masters = usable.filter { it.format.startsWith("m3u8") && it.isMaster }
-        val pool = if (masters.isNotEmpty()) masters else usable
+        val video = usable.filter { !it.isAudio }
+        val audio = usable.filter { it.isAudio }
+        val base = if (video.isNotEmpty()) video else audio
+        val masters = base.filter { it.format.startsWith("m3u8") && it.isMaster }
+        val pool = if (masters.isNotEmpty()) masters else base
+        // v0.9.3 (#4): при равном счёте (формат+качество) — 60fps выше.
+        // Для HLS-мастеров fps неважен (VLC сам выбирает rendition),
+        // но маркеров fps в URL мастеров обычно и нет.
         return pool.distinctBy { it.url }
-            .sortedByDescending { score(it, preferredAudio) }
+            .sortedWith(compareByDescending<VideoCandidate> { score(it, preferredAudio) }.thenByDescending { it.fps ?: 0 })
             .take(max)
     }
 

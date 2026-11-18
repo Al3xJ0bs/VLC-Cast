@@ -113,6 +113,14 @@ object StreamProxy {
     fun proxyMemoryVttUrl(phoneIp: String, port: Int, vttId: String): String =
         "http://$phoneIp:$port/memory-vtt?id=" + URLEncoder.encode(vttId, "UTF-8")
 
+    /**
+     * v0.9.3 (#1): URL синтезированного DASH-манифеста из раздельных
+     * дорожек (YouTube adaptive): http://<ip>:<port>/dash.mpd?id=….
+     * Расширение .mpd в пути — чтобы VLC и VideoUrls опознали формат.
+     */
+    fun proxyDashUrl(phoneIp: String, port: Int, dashId: String): String =
+        "http://$phoneIp:$port/dash.mpd?id=" + URLEncoder.encode(dashId, "UTF-8")
+
     /** Абсолютный URL из относительного против базового (//, /, ./, ../). */
     fun resolveUrl(base: String, ref: String): String = VideoUrls.resolveUrl(base, ref)
 
@@ -208,6 +216,17 @@ class StreamProxyServer(private val ctx: Context) {
      *  дорожки субтитров в памяти (/memory-vtt). */
     private val fileSources = HashMap<String, FileSource>()
     private val memoryVtts = HashMap<String, String>()
+    /** v0.9.3 (#1): зарегистрированные DASH-пары (/dash.mpd). */
+    private val dashPairs = HashMap<String, DashEntry>()
+    private data class DashEntry(val video: DashManifest.Track, val audio: DashManifest.Track, val durationSec: Long?)
+
+    fun registerDash(id: String, video: DashManifest.Track, audio: DashManifest.Track, durationSec: Long?) {
+        synchronized(dashPairs) { dashPairs[id] = DashEntry(video, audio, durationSec) }
+    }
+
+    fun unregisterDash(id: String) {
+        synchronized(dashPairs) { dashPairs.remove(id) }
+    }
 
     fun registerFileSource(id: String, src: FileSource) {
         synchronized(fileSources) { fileSources[id] = src }
@@ -261,6 +280,7 @@ class StreamProxyServer(private val ctx: Context) {
         val sources = synchronized(fileSources) { fileSources.values.toList().also { fileSources.clear() } }
         sources.forEach { runCatching { it.close() } }
         synchronized(memoryVtts) { memoryVtts.clear() }
+        synchronized(dashPairs) { dashPairs.clear() }
     }
 
     /** IP телефона в LAN (Wi-Fi). */
@@ -324,6 +344,12 @@ class StreamProxyServer(private val ctx: Context) {
             }
             if (target.startsWith("/memory-vtt?")) {
                 serveMemoryVtt(sock, target.substringAfter('?', ""))
+                return
+            }
+            // v0.9.3 (#1): /dash.mpd — синтезированный DASH-манифест
+            // из раздельных дорожек (YouTube adaptive, registerDash).
+            if (target.startsWith("/dash.mpd?")) {
+                serveDash(sock, target.substringAfter('?', ""))
                 return
             }
             // v0.9.0: /stream.vtt — дорожка субтитров для sub= (тот же
@@ -488,6 +514,16 @@ class StreamProxyServer(private val ctx: Context) {
                 path.endsWith(".webm", ignoreCase = true) -> "video/webm"
                 path.endsWith(".mov", ignoreCase = true) -> "video/quicktime"
                 path.endsWith(".m4v", ignoreCase = true) -> "video/x-m4v"
+                // v0.9.2: аудиофайлы (галерея/Telegram) — свои типы,
+                // иначе VLC может не распознать .mp3/.flac как аудио.
+                path.endsWith(".mp3", ignoreCase = true) -> "audio/mpeg"
+                path.endsWith(".aac", ignoreCase = true) -> "audio/aac"
+                path.endsWith(".flac", ignoreCase = true) -> "audio/flac"
+                path.endsWith(".ogg", ignoreCase = true) || path.endsWith(".oga", ignoreCase = true) -> "audio/ogg"
+                path.endsWith(".m4a", ignoreCase = true) -> "audio/mp4"
+                path.endsWith(".wav", ignoreCase = true) -> "audio/wav"
+                path.endsWith(".opus", ignoreCase = true) -> "audio/opus"
+                path.endsWith(".mka", ignoreCase = true) -> "audio/x-matroska"
                 else -> "video/mp4"
             }
             val head = StringBuilder()
@@ -545,6 +581,42 @@ class StreamProxyServer(private val ctx: Context) {
             out.flush()
         } catch (e: Exception) {
             Log.add("proxy", "memory-vtt error: ${e.javaClass.simpleName}: ${e.message}")
+            runCatching { writeError(sock, 502) }
+        } finally {
+            runCatching { sock.close() }
+        }
+    }
+
+    /**
+     * v0.9.3 (#1): синтезированный DASH-манифест из зарегистрированной
+     * пары (registerDash). Сегменты VLC тянет напрямую с googlevideo
+     * (в MPD — прямые BaseURL), прокси отдаёт только сам манифест.
+     */
+    private fun serveDash(sock: Socket, query: String) {
+        val out: OutputStream = sock.getOutputStream()
+        try {
+            val params = parseQueryParams(query)
+            val id = params["id"]?.firstOrNull() ?: run {
+                writeError(sock, 400)
+                return
+            }
+            val entry = synchronized(dashPairs) { dashPairs[id] } ?: run {
+                writeError(sock, 404)
+                return
+            }
+            val mpd = DashManifest.build(entry.video, entry.audio, entry.durationSec) ?: run {
+                writeError(sock, 502)
+                return
+            }
+            val bytes = mpd.toByteArray(Charsets.UTF_8)
+            val head =
+                "HTTP/1.1 200 OK\r\nContent-Type: application/dash+xml\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+            out.write(head.toByteArray(Charsets.UTF_8))
+            out.write(bytes)
+            out.flush()
+            Log.add("proxy", "DASH-манифест отдан (${entry.video.height ?: "?"}p + аудио)")
+        } catch (e: Exception) {
+            Log.add("proxy", "dash error: ${e.javaClass.simpleName}: ${e.message}")
             runCatching { writeError(sock, 502) }
         } finally {
             runCatching { sock.close() }

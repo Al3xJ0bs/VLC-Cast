@@ -97,12 +97,36 @@ object StreamProbe {
     }
 
     /**
+     * v0.9.3 (#5): время первого байта (Range 0-0), мс, или null
+     * (ошибка/таймаут/не 2xx). Для пробы скорости зеркал: чем меньше,
+     * тем быстрее зеркало отвечает. Читается ровно 1 байт.
+     */
+    fun probeFirstByteMs(url: String, referer: String?, cookies: String?): Long? {
+        return try {
+            val start = System.nanoTime()
+            val c = openConnection(url, referer, cookies)
+            c.setRequestProperty("Range", "bytes=0-0")
+            c.connect()
+            val code = c.responseCode
+            if (code !in 200..206) {
+                c.disconnect()
+                return null
+            }
+            c.inputStream.use { it.read() }
+            c.disconnect()
+            (System.nanoTime() - start) / 1_000_000
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
      * GET текста с капом по размеру. Редиректы — вручную (до 5),
      * с Referer/Cookie на каждом шаге. null — HTTP не 2xx / таймаут /
      * ошибка. Тело читается полностью только до капа.
      */
-    fun fetchText(url: String, referer: String?, cookies: String?, capBytes: Int = 1024 * 1024, timeoutMs: Int = 3000): String? {
-        val bytes = fetchBytes(url, referer, cookies, capBytes, timeoutMs, null) ?: return null
+    fun fetchText(url: String, referer: String?, cookies: String?, capBytes: Int = 1024 * 1024, timeoutMs: Int = 3000, userAgent: String = PROXY_CHROME_UA): String? {
+        val bytes = fetchBytes(url, referer, cookies, capBytes, timeoutMs, null, userAgent) ?: return null
         return bytes.toString(Charsets.UTF_8)
     }
 
@@ -111,13 +135,13 @@ object StreamProbe {
         return fetchBytes(url, referer, cookies, len, timeoutMs, "bytes=$start-${start + len - 1}")
     }
 
-    private fun fetchBytes(url: String, referer: String?, cookies: String?, capBytes: Int, timeoutMs: Int, range: String?): ByteArray? {
+    private fun fetchBytes(url: String, referer: String?, cookies: String?, capBytes: Int, timeoutMs: Int, range: String?, userAgent: String = PROXY_CHROME_UA): ByteArray? {
         var current = url
         var hops = 0
         while (hops <= 5) {
             val c: HttpURLConnection
             try {
-                c = openConnection(current, referer, cookies, timeoutMs)
+                c = openConnection(current, referer, cookies, timeoutMs, userAgent)
                 if (range != null) c.setRequestProperty("Range", range)
                 c.connect()
                 val code = c.responseCode
@@ -155,12 +179,12 @@ object StreamProbe {
         return null
     }
 
-    private fun openConnection(url: String, referer: String?, cookies: String?, timeoutMs: Int = PROBE_TIMEOUT_MS): HttpURLConnection {
+    private fun openConnection(url: String, referer: String?, cookies: String?, timeoutMs: Int = PROBE_TIMEOUT_MS, userAgent: String = PROXY_CHROME_UA): HttpURLConnection {
         val c = URL(url).openConnection() as HttpURLConnection
         c.instanceFollowRedirects = false
         c.connectTimeout = timeoutMs
         c.readTimeout = timeoutMs
-        c.setRequestProperty("User-Agent", PROXY_CHROME_UA)
+        c.setRequestProperty("User-Agent", userAgent)
         if (!referer.isNullOrBlank()) c.setRequestProperty("Referer", referer)
         if (!cookies.isNullOrBlank()) c.setRequestProperty("Cookie", cookies)
         return c
@@ -284,10 +308,13 @@ object StreamProbe {
                         hlsDurationSec(playlist)
                     }
                 }
-                path.endsWith(".mp4") || path.endsWith(".m4v") || path.endsWith(".mov") -> {
+                path.endsWith(".mp4") || path.endsWith(".m4v") || path.endsWith(".mov") || path.endsWith(".m4a") -> {
                     val head = fetchRange(url, referer, cookies, 0, 128 * 1024, timeoutMs) ?: return null
                     mp4DurationSec(head)
                 }
+                // v0.9.2: mp3 — Xing/CBR-оценка по первым 16 КБ и
+                // общему размеру (см. fetchMp3DurationSec).
+                path.endsWith(".mp3") -> fetchMp3DurationSec(url, referer, cookies, timeoutMs)
                 path.endsWith(".mpd") -> {
                     val mpd = fetchText(url, referer, cookies, 512 * 1024, timeoutMs) ?: return null
                     dashDurationSec(mpd)
@@ -298,8 +325,46 @@ object StreamProbe {
             null
         }
     }
+
+    /**
+     * v0.9.2: длительность mp3-ссылки без скачивания всего файла:
+     * Range 0–16383 + общий размер из Content-Range/Content-Length →
+     * AudioCast.mp3DurationSec (Xing или CBR-оценка). Ошибка сети —
+     * null, честно.
+     */
+    fun fetchMp3DurationSec(url: String, referer: String? = null, cookies: String? = null, timeoutMs: Int = 4000): Long? {
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = timeoutMs
+            conn.readTimeout = timeoutMs
+            conn.setRequestProperty("Range", "bytes=0-16383")
+            conn.setRequestProperty("User-Agent", PROXY_CHROME_UA)
+            if (referer != null) conn.setRequestProperty("Referer", referer)
+            if (cookies != null) conn.setRequestProperty("Cookie", cookies)
+            conn.connect()
+            if (conn.responseCode !in listOf(200, 206)) return null
+            val head = conn.inputStream.readBytes()
+            // Без общего размера CBR-оценка невозможна (Xing — тоже
+            // из head, но размер нужен сигнатуре) — null, честно.
+            val total = conn.getHeaderField("Content-Range")?.substringAfter('/')?.toLongOrNull()
+                ?: conn.getHeaderField("Content-Length")?.toLongOrNull()
+                ?: return null
+            AudioCast.mp3DurationSec(head, total)
+        } catch (e: Exception) {
+            null
+        }
+    }
 }
 
 /** Тот же UA, что у фонового WebView (CastEngine) и прокси. */
 private const val PROXY_CHROME_UA =
     "Mozilla/5.0 (Linux; Android 16; RMX5011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
+
+/**
+ * v0.9.3 (#25 + хотфикс Instagram): десктопный Chrome UA для
+ * fallback-проходов — прямой HTTP-fetch HTML и перезагрузка страницы
+ * в WebView, когда мобильный UA видео не дал. Instagram голому
+ * WebView с мобильным UA отдаёт страницу входа без og:video.
+ */
+const val DESKTOP_UA =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"

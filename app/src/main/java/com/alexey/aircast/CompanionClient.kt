@@ -456,6 +456,11 @@ class CompanionClient(
      * Возвращает true, если команда ушла (ответ _t=3) — но даже
      * при false движок всё равно опрашивает доступность: команда
      * могла дойти при таймауте ответа.
+     * v0.9.2: ВАЖНО — wake работает только при живом Companion
+     * (connect на 49153): пока ТВ спит, connect падает и _hidC
+     * не уходит вообще. Спящий ТВ будится коннектом после mDNS
+     * (sleep proxy: ТВ виден в mDNS и отвечает на connect),
+     * а не этой функцией — см. CastEngine.ensureTvReady.
      */
     fun wakeTv(): Boolean {
         return try {
@@ -503,6 +508,63 @@ class CompanionClient(
         }
     }
 
+    /**
+     * v0.9.3 (#14): список запускаемых приложений (pyatv companion
+     * api.py:291 app_list → FetchLaunchableApplicationsEvent, ответ
+     * _c = {bundle_id: name}). Возвращает карту или null (ошибка /
+     * нет ответа — это НЕ «VLC нет»: вызывающий трактует null как
+     * UNKNOWN и не блокирует каст). Требует живого соединения
+     * (connect + Pair-Verify — до вызова).
+     */
+    fun fetchLaunchableApps(): Map<String, String>? {
+        return try {
+            val resp = sendCommand("FetchLaunchableApplicationsEvent", emptyMap<Any?, Any?>())
+            @Suppress("UNCHECKED_CAST")
+            (resp["_c"] as? Map<*, *>)?.entries?.mapNotNull { (k, v) ->
+                if (k is String && v is String) k to v else null
+            }?.toMap()
+        } catch (e: Exception) {
+            Log.add("companion", "app_list error: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * v0.9.3 (#14): VLC установлен? true/false/null (неизвестно —
+     * не блокировать каст). Совпадение — по bundle id (содержит
+     * "vlc") или имени ("VLC").
+     */
+    fun isVlcInstalled(): Boolean? {
+        val apps = fetchLaunchableApps() ?: return null
+        Log.add("companion", "app_list: ${apps.size} приложений")
+        return isVlcInApps(apps)
+    }
+
+    /**
+     * v0.9.3 (#14): одноразовая проверка установки VLC (connect →
+     * Pair-Verify → FetchLaunchableApplicationsEvent → close).
+     * true/false/null (неизвестно: не спарен / ошибка / нет ответа).
+     */
+    fun checkVlcInstalled(): Boolean? {
+        return try {
+            connect()
+            if (testSessionKeys != null) {
+                conn().enableEncryption(testSessionKeys.first, testSessionKeys.second)
+            } else {
+                val c = credStore?.load(identity)
+                    ?: run { Log.add("companion", "app_list: ТВ не спарен"); return null }
+                pairVerify(c)
+            }
+            runCatching { connectSteps() }
+            isVlcInstalled()
+        } catch (e: Exception) {
+            Log.add("companion", "app_list check error: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        } finally {
+            close()
+        }
+    }
+
     companion object {
         const val DEFAULT_PORT = 49153
         const val RESPONSE_TIMEOUT_MS = 5000
@@ -513,6 +575,13 @@ class CompanionClient(
         const val VLC_HLS_URL = "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8"
 
         fun companionIdentity(host: String): String = "companion:$host"
+
+        /**
+         * v0.9.3 (#14): есть ли VLC в карте app_list (чистая логика,
+         * JVM-тесты): bundle id содержит "vlc" или имя — "VLC".
+         */
+        fun isVlcInApps(apps: Map<String, String>): Boolean =
+            apps.any { (id, name) -> id.contains("vlc", ignoreCase = true) || name.equals("VLC", ignoreCase = true) }
 
         /** vlc-x-callback://x-callback-url/stream?url=<URL-encoded stream URL> (полный encode, включая :// и ?/&).
          * v0.9.0: опциональный subUrl — внешний файл субтитров

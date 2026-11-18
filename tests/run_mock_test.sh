@@ -59,6 +59,7 @@ KOTLINC=$HOME/tools/kotlinc/bin/kotlinc
   app/src/main/java/com/alexey/aircast/EpisodeList.kt \
   app/src/main/java/com/alexey/aircast/Subtitles.kt \
   app/src/main/java/com/alexey/aircast/AutoCast.kt \
+  app/src/main/java/com/alexey/aircast/AudioCast.kt \
   tests/MockTest.kt > tests/mocktest-kotlinc.log 2>&1
 grep -E "error:" tests/mocktest-kotlinc.log && { echo "KOTLINC FAILED"; exit 1; } || true
 # set -e: failing java must NOT abort the script before the log dumps.

@@ -6,15 +6,17 @@ import java.net.URL
 /**
  * v0.9.1 — проверка обновлений в приложении.
  *
- * Честно про источник: у проекта нет своего сервера и нет
- * публичного репозитория (локальный git без remote — см. README),
- * поэтому источник обновлений — ЗАДАВАЕМЫЙ URL в настройках
- * (блок «Настройка один раз»): JSON-файл вида
- *   {"versionCode":31,"versionName":"0.9.1","url":"https://...apk"}
- * Пока URL не задан — проверка честно сообщает «источник не задан»,
- * а не выдумывает, что обновлений нет. Как только появится
- * репозиторий/хостинг — достаточно положить туда latest.json и
- * вписать URL один раз.
+ * v0.9.2: источник по умолчанию — публичный репозиторий
+ * Al3xJ0bs/VLC-Cast, latest.json в корне ветки main:
+ *   https://raw.githubusercontent.com/Al3xJ0bs/VLC-Cast/main/latest.json
+ * Формат latest.json:
+ *   {"versionCode":33,"versionName":"0.9.3","url":"https://github.com/Al3xJ0bs/VLC-Cast/releases/download/v0.9.3/VLC-Cast-0.9.3.apk"}
+ * URL можно изменить в настройках (блок «Настройка один раз»);
+ * пустое поле = обратно к умолчанию. latest.json опубликован
+ * в репозитории (с v0.9.2); если файла нет (404) — честно
+ * «источник обновлений недоступен», без падения:
+ * fetchLatestResult различает недоступный источник (404) и
+ * ошибку сети/мусор в JSON.
  *
  * Проверка: при запуске (не чаще раза в сутки) + кнопка
  * «Проверить обновления». Если versionCode из JSON больше
@@ -27,6 +29,17 @@ import java.net.URL
  */
 object UpdateCheck {
     data class Latest(val versionCode: Int, val versionName: String, val url: String)
+
+    /** v0.9.2: источник обновлений по умолчанию (GitHub, Al3xJ0bs/VLC-Cast). */
+    const val DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/Al3xJ0bs/VLC-Cast/main/latest.json"
+
+    /** v0.9.2: исход проверки — файл есть (Ok), файла пока нет
+     *  (Unavailable — 404), остальное (сеть / мусор) — Error. */
+    sealed class FetchResult {
+        data class Ok(val latest: Latest) : FetchResult()
+        object Unavailable : FetchResult()
+        object Error : FetchResult()
+    }
 
     /** Разобрать latest.json, или null (мусор / нет versionCode). */
     fun parseLatest(json: String?): Latest? {
@@ -44,22 +57,39 @@ object UpdateCheck {
 
     /** GET latest.json (кап 64 КБ), или null (сеть / не 2xx / мусор). */
     fun fetchLatest(checkUrl: String): Latest? {
+        return when (val r = fetchLatestResult(checkUrl)) {
+            is FetchResult.Ok -> r.latest
+            else -> null
+        }
+    }
+
+    /**
+     * v0.9.2: GET latest.json с различением исхода. 404 — файла нет
+     * (источник недоступен); другой не-2xx, мусор в JSON,
+     * переполнение капа, исключение сети — Error.
+     */
+    fun fetchLatestResult(checkUrl: String): FetchResult {
         return try {
             val c = URL(checkUrl).openConnection() as HttpURLConnection
             c.connectTimeout = 10_000
             c.readTimeout = 10_000
             c.setRequestProperty("User-Agent", "VLC Cast")
             c.setRequestProperty("Accept", "application/json")
+            if (c.responseCode == 404) {
+                Log.add("update", "проверка: источник недоступен (404): $checkUrl")
+                return FetchResult.Unavailable
+            }
             if (c.responseCode !in 200..299) {
                 Log.add("update", "проверка: HTTP ${c.responseCode}: $checkUrl")
-                return null
+                return FetchResult.Error
             }
             val bytes = c.inputStream.readBytes()
-            if (bytes.size > 64 * 1024) return null
-            parseLatest(bytes.toString(Charsets.UTF_8))
+            if (bytes.size > 64 * 1024) return FetchResult.Error
+            val latest = parseLatest(bytes.toString(Charsets.UTF_8)) ?: return FetchResult.Error
+            FetchResult.Ok(latest)
         } catch (e: Exception) {
             Log.add("update", "проверка error: ${e.javaClass.simpleName}: ${e.message}")
-            null
+            FetchResult.Error
         }
     }
 }

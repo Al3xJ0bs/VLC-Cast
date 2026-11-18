@@ -27,7 +27,7 @@ echo "== resources =="
 # 0.3.0-command при коде 0.3.1). version-code — вручную, +1 на релиз.
 VER_NAME=$(grep -o 'const val VERSION = "[^"]*"' app/src/main/java/com/alexey/aircast/MainActivity.kt | sed 's/.*"\([^"]*\)".*/\1/')
 [ -n "$VER_NAME" ] || { echo "cannot extract VERSION from MainActivity.kt"; exit 1; }
-echo "version: code=31 name=$VER_NAME"
+echo "version: code=33 name=$VER_NAME"
 [ -n "$OUT" ] || OUT="VLC-Cast-$VER_NAME.apk"
 rm -rf build/gen build/classes build/dex build/stage build/compiled.zip
 mkdir -p build/gen build/classes build/dex build/stage
@@ -35,7 +35,7 @@ mkdir -p build/gen build/classes build/dex build/stage
 "$BT/aapt2" link -o build/app.unaligned.apk -I "$AJAR" \
   --manifest app/src/main/AndroidManifest.xml \
   --min-sdk-version 26 --target-sdk-version 34 \
-  --version-code 31 --version-name "$VER_NAME" \
+  --version-code 33 --version-name "$VER_NAME" \
   build/compiled.zip --java build/gen
 
 echo "== java (AirCastApp + CrashLog: pure Java, no Kotlin runtime dependency) =="
