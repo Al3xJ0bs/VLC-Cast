@@ -31,8 +31,6 @@ import com.alexey.aircast.PlaybackStore
 import com.alexey.aircast.OpenSubtitles
 import com.alexey.aircast.UpdateCheck
 import com.alexey.aircast.DashManifest
-import com.alexey.aircast.PairingBackup
-import com.alexey.aircast.HapCredentials
 import com.alexey.aircast.UpdateGate
 import com.alexey.aircast.FileShareRoute
 import com.alexey.aircast.RangeServe
@@ -252,13 +250,13 @@ fun main() {
     // JVM-тестах (Android-классы) — читаем исходник как текст.
     val mainActivitySrc = File("app/src/main/java/com/alexey/aircast/MainActivity.kt").readText()
     val shownVersion = Regex("const val VERSION = \"([^\"]+)\"").find(mainActivitySrc)?.groupValues?.get(1)
-    check("version-label", shownVersion == "0.9.3.1", "VERSION=$shownVersion")
+    check("version-label", shownVersion == "0.9.3.2", "VERSION=$shownVersion")
     val buildSh = File("build.sh").readText()
     check("version-build-derives-name", buildSh.contains("const val VERSION") && !Regex("--version-name 0\\.3").containsMatchIn(buildSh),
         "build.sh must derive --version-name from MainActivity.VERSION, not hardcode it")
-    check("version-code-34", buildSh.contains("--version-code 34"), "no --version-code 34 in build.sh")
-    check("version-code-const-34", Regex("const val VERSION_CODE = 34").containsMatchIn(mainActivitySrc),
-        "MainActivity.VERSION_CODE must be 34 (update check compares against it)")
+    check("version-code-35", buildSh.contains("--version-code 35"), "no --version-code 35 in build.sh")
+    check("version-code-const-35", Regex("const val VERSION_CODE = 35").containsMatchIn(mainActivitySrc),
+        "MainActivity.VERSION_CODE must be 35 (update check compares against it)")
     // v0.9.3.1: краш при запуске — двухаргументный registerReceiver
     // на Android 13+ бросает SecurityException. Статическая проверка
     // исходника AppUpdater: флаг NOT_EXPORTED обязан быть, двухаргументной
@@ -267,6 +265,19 @@ fun main() {
     check("updater-receiver-flag", appUpdaterSrc.contains("RECEIVER_NOT_EXPORTED") &&
         !appUpdaterSrc.contains("registerReceiver(r, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))"),
         "AppUpdater must register the download receiver with RECEIVER_NOT_EXPORTED")
+    // v0.9.3.2: краш при шаринге из Telegram — NoDisplay-activity
+    // обязана finish() в onCreate. Статическая проверка исходника
+    // ShareReceiverActivity: копия — в сервисе (FILE_COPY), в самой
+    // activity нет ни фоновых потоков, ни вызовов старой двухшаговой
+    // схемы. (Проверка — по коду, а не по комментариям: история в
+    // шапке класса намеренно упоминает FILE_WAIT/FILE_DELIVER.)
+    val shareReceiverSrc = File("app/src/main/java/com/alexey/aircast/ShareReceiverActivity.kt").readText()
+    check("share-receiver-finish", shareReceiverSrc.contains("CastService.fileCopyIntent") &&
+        shareReceiverSrc.contains("finish()") &&
+        !shareReceiverSrc.contains("Thread {") && !shareReceiverSrc.contains("runOnUiThread {") &&
+        !shareReceiverSrc.contains("fileWaitIntent") && !shareReceiverSrc.contains("fileDeliverIntent") &&
+        !shareReceiverSrc.contains("fun copySharedFile") && !shareReceiverSrc.contains("fun deliverFile"),
+        "ShareReceiverActivity must forward the URI and finish() synchronously in onCreate")
     // --- v0.6.0: зеркало, мастер и ручной ввод удалены; share intent ---
     // Зеркало («вообще не интересно», его слово 2026-11-10) и мастер
     // 1-2-3 удалены из приложения полностью. Эти проверки фиксируют,
@@ -1111,15 +1122,24 @@ fun main() {
         UpdateGate.decide(true, true) == UpdateGate.Decision.PROCEED &&
         UpdateGate.decide(false, false) == UpdateGate.Decision.OPEN_SETTINGS &&
         UpdateGate.decide(false, true) == UpdateGate.Decision.DENIED)
-    // v0.9.3 (хотфикс Telegram): FileShareRoute — маршрутизация
-    // интентов файлового шаринга.
-    check("fileshare-route", FileShareRoute.resolve(FileShareRoute.ACTION_FILE_WAIT, null, null, null) == FileShareRoute.Route.WAIT &&
-        FileShareRoute.resolve(FileShareRoute.ACTION_FILE_DELIVER, "/cache/x.mp4", null, null) == FileShareRoute.Route.DELIVER_PATH &&
+    // v0.9.3.2 (краш шаринга из Telegram): FileShareRoute — копия
+    // файла теперь в сервисе (FILE_COPY); двухшаговая схема
+    // FILE_WAIT/FILE_DELIVER удалена.
+    check("fileshare-route", FileShareRoute.resolve(FileShareRoute.ACTION_FILE_COPY, null, "content://telegram/x.mp4", null) == FileShareRoute.Route.COPY_FILE &&
+        FileShareRoute.resolve(FileShareRoute.ACTION_FILE_COPY, null, null, null) == FileShareRoute.Route.NONE &&
         FileShareRoute.resolve("com.alexey.aircast.action.CAST", "/cache/x.mp4", null, null) == FileShareRoute.Route.DELIVER_PATH &&
         FileShareRoute.resolve("com.alexey.aircast.action.CAST", null, "content://telegram/x.mp4", null) == FileShareRoute.Route.FILE_URI &&
         FileShareRoute.resolve("com.alexey.aircast.action.CAST", null, null, "https://example.test/p") == FileShareRoute.Route.URL &&
-        FileShareRoute.resolve("com.alexey.aircast.action.CAST", null, null, null) == FileShareRoute.Route.NONE &&
-        FileShareRoute.resolve(FileShareRoute.ACTION_FILE_DELIVER, null, "content://telegram/x.mp4", null) == FileShareRoute.Route.FILE_URI)
+        FileShareRoute.resolve("com.alexey.aircast.action.CAST", null, null, null) == FileShareRoute.Route.NONE)
+    // v0.9.3.2 (Instagram через прокси): CDN Instagram — в прокси;
+    // без Referer — как раньше, напрямую; чужие хосты — напрямую.
+    val igRef = "https://www.instagram.com/p/xyz/"
+    check("proxy-instagram-hosts", StreamProxy.needsProxy("https://scontent-hel3-1.cdninstagram.com/v/t50.mp4", igRef) &&
+        StreamProxy.needsProxy("https://scontent-iev1-1.xx.fbcdn.net/v.mp4", igRef) &&
+        StreamProxy.needsProxy("https://www.instagram.com/p/xyz/media.mp4", igRef) &&
+        !StreamProxy.needsProxy("https://scontent-hel3-1.cdninstagram.com/v/t50.mp4", null) &&
+        !StreamProxy.needsProxy("https://example.test/v.mp4", igRef) &&
+        StreamProxy.needsProxy("https://video.sibnet.ru/v/1.mp4", "https://video.sibnet.ru/shell.php?videoid=1"))
     // v0.9.3 (хотфикс Instagram): extractMetaVideoUrls из сырого HTML.
     val igHtml = """<html><head><meta property="og:video" content="https://cdn.example.test/v.mp4"><meta content="https://cdn.example.test/v2.mp4" property="og:video:secure_url"><meta name="twitter:player:stream" content="https://cdn.example.test/v3.mp4?x=1&amp;y=2"><script>{"video_url":"https:\/\/cdn.example.test\/v4.mp4"}</script></head></html>"""
     check("meta-video-urls", VideoUrls.extractMetaVideoUrls(igHtml) == listOf(
@@ -1192,23 +1212,24 @@ fun main() {
         serviceSrc090.contains("notifWatchingQueueText") && serviceSrc090.contains("notifTvUnreachableText") &&
         serviceSrc090.contains("watchingInfo") && serviceSrc090.contains("FLAG_GRANT_READ_URI_PERMISSION"),
         "CastService must toggle subs, show title+poster, handle queue/end/files")
-    // MainActivity v0.9.1: блок «Настройка один раз», проверка обновлений, ключ OpenSubtitles.
-    check("main-setup-v091",
-        mainSrc.contains("Настройка один раз") && mainSrc.contains("На Apple TV должен быть установлен VLC") &&
-        mainSrc.contains("ТВ спарен ✓") && mainSrc.contains("Проверить обновления") &&
-        mainSrc.contains("opensubtitles_api_key") && mainSrc.contains("update_check_url") &&
-        mainSrc.contains("Спарить Apple TV") && mainSrc.contains("Сохранить настройки"),
-        "MainActivity must have the one-time setup block (VLC + pairing + update check + OpenSubtitles key)")
+    // MainActivity v0.9.3.2 (чистка экрана, слово Алексея): блок
+    // «Настройка один раз» убран — только компактные строки статуса:
+    // спаривание, самопроверка, обновления.
+    check("main-status-v0932",
+        mainSrc.contains("ТВ спарен ✓") && mainSrc.contains("Спарить Apple TV") &&
+        mainSrc.contains("Самопроверка") && mainSrc.contains("runSelfCheck") &&
+        mainSrc.contains("DEFAULT_UPDATE_URL") && mainSrc.contains("autoChecksStarted"),
+        "MainActivity must have the compact status block (pairing + self-check + updates)")
     // Манифест v0.9.1: ACTION_SEND с video/* — на ShareReceiverActivity.
     check("manifest-video-share",
         shareSection.contains("video/*") && shareSection.contains("android.intent.action.SEND"),
         "manifest must declare ACTION_SEND video/* on ShareReceiverActivity")
-    // ShareReceiverActivity v0.9.1: видеофайл → fileCastIntent.
+    // ShareReceiverActivity v0.9.3.2: видеофайл → fileCopyIntent (копия — в сервисе).
     val shareSrc = File("app/src/main/java/com/alexey/aircast/ShareReceiverActivity.kt").readText()
     check("share-receiver-file",
-        shareSrc.contains("EXTRA_STREAM") && shareSrc.contains("video/") && shareSrc.contains("fileCastIntent") &&
+        shareSrc.contains("EXTRA_STREAM") && shareSrc.contains("video/") && shareSrc.contains("fileCopyIntent") &&
         shareSrc.contains("OpenableColumns.DISPLAY_NAME"),
-        "ShareReceiverActivity must forward video/* files to CastService.fileCastIntent")
+        "ShareReceiverActivity must forward video/* files to CastService.fileCopyIntent")
     // Уведомления v0.9.1: тексты.
     check("notif-texts-v091",
         AutoCast.notifSuccessWithTitleText("Розаріо вампір — 1 сезон, 5 серия") == "«Розаріо вампір — 1 сезон, 5 серия» — запущено на Apple TV ✓" &&
@@ -1335,9 +1356,9 @@ fun main() {
         proxySrc.contains("audio/mp4") && proxySrc.contains("audio/wav") && proxySrc.contains("audio/opus"))
     // Манифест: ACTION_SEND audio/* на ShareReceiverActivity.
     check("manifest-audio-share", shareSection.contains("audio/*"))
-    // ShareReceiverActivity: audio/* → fileCastIntent с isAudio.
+    // ShareReceiverActivity: audio/* → fileCopyIntent с isAudio.
     check("share-receiver-audio",
-        shareSrc.contains("audio/") && shareSrc.contains("fileCastIntent") && shareSrc.contains("isAudio"))
+        shareSrc.contains("audio/") && shareSrc.contains("fileCopyIntent") && shareSrc.contains("isAudio"))
     // CastEngine: аудио-ветки в исходнике.
     check("engine-audio",
         engineSrc.contains("trySoundCloudMedia") && engineSrc.contains("tryRadioPlaylist") &&
@@ -1347,12 +1368,12 @@ fun main() {
     check("service-audio",
         serviceSrc.contains("EXTRA_FILE_IS_AUDIO") && serviceSrc.contains("notifSuccessAudioText") &&
         serviceSrc.contains("notifProgressAudioText"))
-    // v0.9.2 (БАГ 0.9.1): шаринг файла из Telegram — копия в activity,
-    // пока grant жив; сервису — путь, а не URI.
-    check("receiver-copies-file",
-        shareSrc.contains("copySharedFile") && shareSrc.contains("openInputStream") &&
-        shareSrc.contains("TempFiles.tempName") && shareSrc.contains("filePathCastIntent") &&
-        shareSrc.contains("скопирован в activity"))
+    // v0.9.3.2 (краш шаринга из Telegram): копия файла — в СЕРВИСЕ,
+    // а не в NoDisplay-activity; activity только форвардит URI.
+    check("service-copies-file",
+        serviceSrc.contains("copySharedFile") && serviceSrc.contains("openInputStream") &&
+        serviceSrc.contains("TempFiles.tempName") && serviceSrc.contains("fileCopyIntent") &&
+        serviceSrc.contains("скопирован в сервисе") && serviceSrc.contains("FILE_COPY"))
     check("service-file-path",
         serviceSrc.contains("EXTRA_FILE_PATH") && serviceSrc.contains("filePathCastIntent") &&
         serviceSrc.contains("onFileError") && serviceSrc.contains("shareLog = true"))
@@ -1423,11 +1444,13 @@ fun main() {
     updServer.close()
     check("update-fetch-refused",
         UpdateCheck.fetchLatestResult("$updBase/latest.json") == UpdateCheck.FetchResult.Error)
-    // MainActivity: URL по умолчанию без ручного ввода, 404 — честно.
+    // MainActivity v0.9.3.2: источник обновлений — всегда вшитый
+    // DEFAULT_UPDATE_URL; функция updateCheckUrl() удалена вместе
+    // с полем ввода URL; 404 — честно «источник недоступен».
     check("main-update-default",
         mainSrc.contains("UpdateCheck.DEFAULT_UPDATE_URL") &&
-        mainSrc.contains("Источник обновлений недоступен") &&
-        mainSrc.contains("updateCheckUrl()"))
+        mainSrc.contains("источник недоступен") &&
+        !mainSrc.contains("updateCheckUrl()"))
 
     // --- v0.9.3: DASH, 60fps, проба зеркал, VLC-check, JSON-LD, oEmbed, бэкап ---
     // #1: DashManifest — структура, SegmentBase, кодексы, PT, null без initRange.
@@ -1500,21 +1523,26 @@ fun main() {
     check("oembed-html", VideoUrls.parseOembedVideoUrl("""{"type":"video","html":"<iframe width=\"640\" src=\"https://cdn.test/v.m3u8\"></iframe>"}""") == "https://cdn.test/v.m3u8")
     check("oembed-photo", VideoUrls.parseOembedVideoUrl("""{"type":"photo","url":"https://cdn.test/v.mp4"}""") == null)
     check("oembed-no-type", VideoUrls.parseOembedVideoUrl("""{"url":"https://cdn.test/v.mp4"}""") == "https://cdn.test/v.mp4")
-    // #27: PairingBackup — round-trip + мусор.
-    val fakeCreds = HapCredentials(ByteArray(32) { 1 }, ByteArray(32) { 2 }, ByteArray(32) { 3 }, ByteArray(32) { 4 })
-    val backupText = PairingBackup.exportAll(listOf("companion:192.168.0.57" to fakeCreds.serialize(), "192.168.0.57" to fakeCreds.serialize()))
-    val parsedBackup = PairingBackup.parse(backupText)
-    check("pairing-backup-roundtrip", parsedBackup.entries.size == 2 && parsedBackup.skipped == 0 &&
-        parsedBackup.entries[0].identity == "companion:192.168.0.57" && parsedBackup.entries[0].creds.serialize() == fakeCreds.serialize())
-    val badBackup = PairingBackup.parse("# VLC Cast pairing backup v1\ncompanion:192.168.0.57\tzzz\n\nno-tab-line\ncompanion:192.168.0.57\t${fakeCreds.serialize()}\n")
-    check("pairing-backup-bad", badBackup.entries.size == 1 && badBackup.skipped == 2)
-    check("pairing-backup-empty", PairingBackup.parse(null).entries.isEmpty() && PairingBackup.parse("").entries.isEmpty())
-    // #17/#18/#20/#27: UI на месте (текстовые маркеры в MainActivity).
+    // #17/#18/#20: UI на месте (текстовые маркеры в MainActivity).
     check("ui-093", mainSrc.contains("Сохранить вход (куки)") &&
         mainSrc.contains("Самопроверка") && mainSrc.contains("runSelfCheck") &&
-        mainSrc.contains("Что нового в \$VERSION") && mainSrc.contains("last_seen_version") &&
-        mainSrc.contains("Экспорт спаривания") && mainSrc.contains("Импорт спаривания") &&
-        mainSrc.contains("REQUEST_BACKUP_IMPORT"))
+        mainSrc.contains("Что нового в \$VERSION") && mainSrc.contains("last_seen_version"))
+    // v0.9.3.2 (чистка главного экрана): «Поделиться логом» — на
+    // главном экране; самопроверка и обновления — авто при запуске;
+    // кнопок проверки, поля URL, ключа OpenSubtitles и бэкапа
+    // спаривания на главном экране больше нет.
+    check("ui-0932-cleanup", mainSrc.contains("Поделиться логом") &&
+        mainSrc.contains("LogShareActivity") &&
+        mainSrc.contains("autoChecksStarted") && mainSrc.contains("DEFAULT_UPDATE_URL") &&
+        !mainSrc.contains("button(\"Экспорт спаривания\")") &&
+        !mainSrc.contains("button(\"Импорт спаривания\")") &&
+        !mainSrc.contains("REQUEST_BACKUP_IMPORT") &&
+        !mainSrc.contains("PairingBackup") &&
+        !mainSrc.contains("button(\"Проверить обновления\")") &&
+        !mainSrc.contains("button(\"Проверить\")") &&
+        !mainSrc.contains("bigButton(\"Сохранить настройки\")") &&
+        !mainSrc.contains("update_check_url") &&
+        !mainSrc.contains("opensubtitles_api_key"))
 
     println(if (failures == 0) "ALL TESTS PASSED" else "$failures TESTS FAILED")
     if (failures > 0) kotlin.system.exitProcess(1)

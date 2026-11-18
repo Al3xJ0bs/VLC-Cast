@@ -34,8 +34,19 @@ import kotlin.concurrent.thread
  * захватываются свежими и играют сразу — прокси их не кеширует.
  */
 object StreamProxy {
-    /** Хосты CDN, требующие Referer (исследование 2026-11-18). */
-    private val REFERER_HOSTS = listOf("sibnet.ru", "okcdn.ru", "ok.ru")
+    /**
+     * Хосты CDN, требующие Referer (исследование 2026-11-18).
+     * v0.9.3.2: + Instagram (instagram.com / cdninstagram.com /
+     * fbcdn.net — og:video с этих CDN): 0.9.3.1 видео находилось и
+     * уходило во VLC, но VLC его не загружал — голый URL без
+     * Referer/UA/кук. Честно: точная причина незагрузки без лога
+     * неизвестна; прокси — гипотеза + инструмент диагностики
+     * (точный итоговый URL теперь пишется в лог в launchVlc).
+     */
+    private val REFERER_HOSTS = listOf(
+        "sibnet.ru", "okcdn.ru", "ok.ru",
+        "instagram.com", "cdninstagram.com", "fbcdn.net"
+    )
 
     /** Нужен ли прокси для этой ссылки: Referer есть и хост в списке. */
     fun needsProxy(url: String, referer: String?): Boolean {

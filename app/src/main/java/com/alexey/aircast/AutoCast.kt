@@ -98,7 +98,7 @@ object AutoCast {
     /** v0.9.2: аудио (прогресс и успех без названия). */
     fun notifProgressAudioText(): String = "Отправляю аудио на Apple TV…"
     fun notifSuccessAudioText(): String = "Аудио запущено на Apple TV ✓"
-    /** v0.9.3: сервис ждёт копию расшаренного файла (FILE_WAIT). */
+    /** v0.9.3.2: сервис копирует расшаренный файл (FILE_COPY). */
     fun notifCopyingFileText(): String = "Копирую файл…"
 
     // ---------- авто-выбор кандидата ----------

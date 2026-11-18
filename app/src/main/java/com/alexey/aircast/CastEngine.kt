@@ -1930,6 +1930,11 @@ class CastEngine(
         flowState = FlowState.LAUNCHING
         listener.onStatus("Запускаю VLC на ТВ…")
         Log.add("vlc", "запуск $label: ${VideoUrls.safeHost(launchUrl)}")
+        // v0.9.3.2 (Instagram: VLC не загружает найденное видео):
+        // точный итоговый URL, который уходит в vlcDeepLink, —
+        // ПОЛНОСТЬЮ в лог (только в лог, не в уведомление: там могут
+        // быть токены). По нему — точная диагностика следующего прогона.
+        Log.add("vlc", "итоговый URL во VLC: $launchUrl" + if (subUrl != null) " (sub=$subUrl)" else "")
         thread {
             try {
                 CompanionClient(dev.host, credStore = credStore).connectAndLaunchVlc(launchUrl, subUrl)

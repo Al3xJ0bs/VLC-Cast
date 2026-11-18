@@ -48,6 +48,8 @@ class CastService : Service() {
         const val EXTRA_FILE_PATH = "vlc_cast_file_path"
         /** v0.9.2: файл — аудио (MIME audio), а не видео. */
         const val EXTRA_FILE_IS_AUDIO = "vlc_cast_file_is_audio"
+        /** v0.9.3.2: копия расшаренного файла дольше этого — fallback на URI. */
+        const val COPY_TIMEOUT_MS = 60_000L
         const val NOTIF_ID = 1001
 
         /** Сколько ждём действия пользователя (PIN / выбор ТВ). */
@@ -91,28 +93,20 @@ class CastService : Service() {
             }
 
         /**
-         * v0.9.3 (хотфикс 0.9.2 — тишина из Telegram): сервис стартует
-         * СИНХРОННО в onCreate ShareReceiverActivity, ДО копии файла.
-         * Сразу показывает «Копирую файл…» и ждёт путь вторым интентом.
-         * Без data/extra — только имя файла для уведомления.
+         * v0.9.3.2 (краш 0.9.3.1 — NoDisplay-activity не вызвала
+         * finish() в onCreate, пока копировала файл в своём потоке):
+         * activity — только форвардер: URI уходит сервису одним
+         * интентом, копия — в самом сервисе. URI — в data интента:
+         * только так FLAG_GRANT_READ_URI_PERMISSION передаёт сервису
+         * право чтения content:// URI.
          */
-        fun fileWaitIntent(ctx: Context, name: String?, isAudio: Boolean = false): Intent =
+        fun fileCopyIntent(ctx: Context, uri: android.net.Uri, name: String?, isAudio: Boolean = false): Intent =
             Intent(ctx, CastService::class.java).apply {
-                action = FileShareRoute.ACTION_FILE_WAIT
+                action = FileShareRoute.ACTION_FILE_COPY
+                data = uri
                 if (name != null) putExtra(EXTRA_FILE_NAME, name)
                 putExtra(EXTRA_FILE_IS_AUDIO, isAudio)
-            }
-
-        /**
-         * v0.9.3: доставка пути к копии в уже работающий (foreground)
-         * сервис. Ограничение Android 12+ на старт из фона не действует.
-         */
-        fun fileDeliverIntent(ctx: Context, path: String, name: String?, isAudio: Boolean = false): Intent =
-            Intent(ctx, CastService::class.java).apply {
-                action = FileShareRoute.ACTION_FILE_DELIVER
-                putExtra(EXTRA_FILE_PATH, path)
-                if (name != null) putExtra(EXTRA_FILE_NAME, name)
-                putExtra(EXTRA_FILE_IS_AUDIO, isAudio)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
         fun cancelIntent(ctx: Context): Intent =
@@ -182,35 +176,21 @@ class CastService : Service() {
                 Log.add("tv", "CastService: ТВ выбран в activity: $host (continued=$continued)")
                 return START_NOT_STICKY
             }
-            // v0.9.3 (хотфикс 0.9.2 — тишина из Telegram): сервис
-            // стартовал синхронно в onCreate activity, ДО копии файла.
-            // Сразу foreground + «Копирую файл…», ждёт путь вторым
-            // интентом. Страховка: если activity умрёт до доставки
-            // пути — сервис сам остановится через 5 мин, а не висит
-            // вечно с «Копирую файл…».
-            FileShareRoute.ACTION_FILE_WAIT -> {
+            // v0.9.3.2 (краш 0.9.3.1 — NoDisplay-activity обязана
+            // finish() в onCreate): activity только форвардит URI,
+            // копия файла — ЗДЕСЬ, в фоновом потоке сервиса.
+            // Сразу foreground + «Копирую файл…», страховка — таймер
+            // 5 мин: если копия зависнет, сервис остановится сам.
+            FileShareRoute.ACTION_FILE_COPY -> {
+                val uri = intent.data ?: return START_NOT_STICKY
                 val name = intent.getStringExtra(EXTRA_FILE_NAME)
                 val isAudio = intent.getBooleanExtra(EXTRA_FILE_IS_AUDIO, false)
-                Log.add("service", "FILE_WAIT: жду копию файла (${name ?: "без имени"}, аудио=$isAudio)")
+                Log.add("service", "FILE_COPY: копирую ${name ?: uri} (аудио=$isAudio)")
                 armWaitTimer()
-                startForeground(NOTIF_ID, progressNotification(AutoCast.notifCopyingFileText()))
-                return START_NOT_STICKY
-            }
-            // v0.9.3: доставка пути к копии в уже работающий
-            // (foreground) сервис — ограничение Android 12+ на старт
-            // из фона не действует.
-            FileShareRoute.ACTION_FILE_DELIVER -> {
-                val filePath = intent.getStringExtra(EXTRA_FILE_PATH)
-                    ?: return START_NOT_STICKY
-                val name = intent.getStringExtra(EXTRA_FILE_NAME)
-                val isAudio = intent.getBooleanExtra(EXTRA_FILE_IS_AUDIO, false)
-                Log.add("service", "FILE_DELIVER: путь к копии: $filePath (аудио=$isAudio)")
-                cancelWaitTimer()
-                currentUrl = null
                 if (!autoNextArmed) {
-                    startForeground(NOTIF_ID, progressNotification(if (isAudio) AutoCast.notifProgressAudioText() else "Файл получен — запускаю…"))
+                    startForeground(NOTIF_ID, progressNotification(AutoCast.notifCopyingFileText()))
                 }
-                engine.startFileShare(filePath, name, isAudio)
+                copySharedFileAsync(uri, name, isAudio)
                 return START_NOT_STICKY
             }
             else -> {
@@ -272,6 +252,7 @@ class CastService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        serviceDestroyed = true
         cancelWaitTimer()
         cancelHideTimer()
         runCatching { engine.destroy() }
@@ -404,6 +385,93 @@ class CastService : Service() {
         }
         waitRunnable = r
         mainHandler.postDelayed(r, WAIT_TIMEOUT_MS)
+    }
+
+    /** v0.9.3.2: сервис уничтожен — отложенная копия не запускает движок. */
+    @Volatile
+    private var serviceDestroyed = false
+
+    /**
+     * v0.9.3.2: копия расшаренного файла — в сервисе, а не в
+     * NoDisplay-activity (см. FileShareRoute). Grant на URI пришёл
+     * с интентом (FLAG_GRANT_READ_URI_PERMISSION) и живёт, пока
+     * живёт сервис. По завершении — startFileShare по пути копии;
+     * при ошибке/таймауте — fallback на URI (движок попробует
+     * openFileDescriptor напрямую, как в 0.9.1).
+     */
+    private fun copySharedFileAsync(uri: android.net.Uri, name: String?, isAudio: Boolean) {
+        Thread {
+            val tempPath = copySharedFileWithTimeout(uri)
+            mainHandler.post {
+                if (serviceDestroyed) return@post
+                cancelWaitTimer()
+                if (!autoNextArmed) {
+                    startForeground(NOTIF_ID, progressNotification(if (isAudio) AutoCast.notifProgressAudioText() else "Файл получен — запускаю…"))
+                }
+                currentUrl = null
+                if (tempPath != null) {
+                    Log.add("file", "копия в сервисе готова: $tempPath")
+                    engine.startFileShare(tempPath, name, isAudio)
+                } else {
+                    Log.add("file", "копия не удалась — fallback на URI для движка")
+                    engine.startFileShare(uri.toString(), name, isAudio)
+                }
+            }
+        }.apply { isDaemon = true; this.name = "aircast-copy" }.start()
+    }
+
+    /**
+     * v0.9.3.2: копия с таймаутом COPY_TIMEOUT_MS (перенесено из
+     * ShareReceiverActivity 0.9.3). Если openInputStream висит
+     * дольше — null (вызывающий идёт на fallback по URI), а не
+     * вечная тишина. Зависший поток копии — daemon: cancel(true)
+     * его прерывает, но блокирующий I/O провайдера может не ответить
+     * на interrupt — тогда поток дописывает temp-файл в фоне, который
+     * никто не использует (stale-cleanup сервиса его удалит).
+     */
+    private fun copySharedFileWithTimeout(uri: android.net.Uri, timeoutMs: Long = COPY_TIMEOUT_MS): String? {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r).apply { isDaemon = true; name = "aircast-copy-worker" }
+        }
+        val future = executor.submit<String?> { copySharedFile(uri) }
+        return try {
+            future.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (e: java.util.concurrent.TimeoutException) {
+            Log.add("file", "копия: таймаут ${timeoutMs / 1000} с — fallback на URI для движка")
+            future.cancel(true)
+            null
+        } catch (e: Exception) {
+            Log.add("file", "копия: ожидание error: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    /**
+     * v0.9.3.2: копия расшаренного файла в cacheDir/aircast-temp —
+     * пока grant на URI жив (сервис получил его с интентом).
+     * Возвращает абсолютный путь к копии или null (openInputStream
+     * вернул null / ошибка). Логируется размер копии и класс
+     * исключения. Оригинал не трогается; удаление копии — в движке
+     * после каста + stale-cleanup сервиса.
+     */
+    private fun copySharedFile(uri: android.net.Uri): String? {
+        return try {
+            val dir = File(cacheDir, TempFiles.TEMP_DIR_NAME).apply { mkdirs() }
+            val tmp = File(dir, TempFiles.tempName())
+            val bytes = contentResolver.openInputStream(uri)?.use { input ->
+                tmp.outputStream().use { output -> input.copyTo(output) }
+            } ?: run {
+                Log.add("file", "копия в сервисе: openInputStream вернул null: $uri")
+                return null
+            }
+            Log.add("file", "скопирован в сервисе: ${tmp.name}, $bytes Б → ${tmp.absolutePath}")
+            tmp.absolutePath
+        } catch (e: Exception) {
+            Log.add("file", "копия в сервисе error: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        }
     }
 
     /** Успех: уведомление об успехе (с чистым названием и постером),

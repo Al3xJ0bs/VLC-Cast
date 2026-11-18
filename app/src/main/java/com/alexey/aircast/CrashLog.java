@@ -30,11 +30,11 @@ import java.util.Locale;
  * Everything here is defensive: the handler must never throw itself.
  */
 public final class CrashLog {
-    // v0.9.3.1: синхронизировать вручную с MainActivity.VERSION при каждом
+    // v0.9.3.2: синхронизировать вручную с MainActivity.VERSION при каждом
     // релизе. CrashLog намеренно не ссылается на MainActivity (Kotlin):
     // он должен работать, даже если Kotlin runtime / dex MainActivity
     // сломан, поэтому версия здесь — своя захардкоженная строка.
-    public static final String VERSION = "0.9.3.1";
+    public static final String VERSION = "0.9.3.2";
     private static final String CRASH_FILE = "aircast-crash.log";
     private static final String STARTUP_FILE = "aircast-startup.log";
     private static final String PREFS = "aircast";

@@ -53,13 +53,11 @@ import android.widget.Toast
  */
 class MainActivity : Activity() {
     companion object {
-        const val VERSION = "0.9.3.1"
+        const val VERSION = "0.9.3.2"
         /** v0.9.1: versionCode — для проверки обновлений (сравнивается с latest.json). */
-        const val VERSION_CODE = 34
+        const val VERSION_CODE = 35
         const val EXTRA_SAFE_MODE = "aircast_safe_mode"
         private const val REQ_POST_NOTIFICATIONS = 1001
-        /** v0.9.3 (#27): onActivityResult — импорт файла бэкапа спаривания. */
-        private const val REQUEST_BACKUP_IMPORT = 4102
     }
 
     private lateinit var prefs: android.content.SharedPreferences
@@ -83,14 +81,15 @@ class MainActivity : Activity() {
     private var webViewHolder: LinearLayout? = null
     private var pairPinBar: EditText? = null
     private var tvPickList: LinearLayout? = null
-    // v0.9.1: рефы блока «Настройка один раз» (экран-инструкция).
+    // v0.9.1: рефы блока статуса (экран-инструкция).
     private var updateStatus: TextView? = null
-    private var updateUrlField: EditText? = null
-    private var openSubsKeyField: EditText? = null
     private var setupPairLabel: TextView? = null
     private var updateDownloadButton: Button? = null
     // v0.9.3 (#18): статус самопроверки.
     private var selfCheckStatus: TextView? = null
+    // v0.9.3.2: авто-проверки (самопроверка + обновления) — один раз
+    // за жизнь activity, а не на каждый рендер режима.
+    private var autoChecksStarted = false
     // v0.9.3: самообновление внутри приложения (DownloadManager + промпт установки).
     private var appUpdater: AppUpdater? = null
 
@@ -201,8 +200,6 @@ class MainActivity : Activity() {
         pairPinBar = null
         tvPickList = null
         updateStatus = null
-        updateUrlField = null
-        openSubsKeyField = null
         setupPairLabel = null
         updateDownloadButton = null
         contentRoot.removeAllViews()
@@ -232,15 +229,29 @@ class MainActivity : Activity() {
         root.addView(stepCard("🎵", "Музыка — тоже: поделись ссылкой на трек или аудиофайлом",
             "SoundCloud, YouTube Music, радио, Bandcamp — обложка и название из метаданных."))
         root.addView(textView("При шаринге приложение не открывается: всё происходит в фоне, а на экране появится уведомление.", 14f))
+        // v0.9.3.2 (Instagram: VLC не загружает найденное видео):
+        // «Поделиться логом» — на главном экране: раньше кнопка была
+        // только в уведомлении «Видео не найдено», а при найденном
+        // видео пути поделиться логом не было. Лог нужен с точным
+        // URL, который ушёл во VLC (launchVlc пишет его полностью).
+        root.addView(button("Поделиться логом") {
+            startActivity(Intent(this, LogShareActivity::class.java))
+        })
         // v0.9.3 (#20): «Что нового» — один раз на новую версию.
         if ((prefs.getString("last_seen_version", "") ?: "") != VERSION) {
             root.addView(buildWhatsNewCard())
         }
-        root.addView(buildSetupBlock())
+        root.addView(buildStatusBlock())
         root.addView(textView("VLC Cast $VERSION", 13f))
         contentRoot.addView(scroll)
-        // v0.9.1: проверка обновлений — раз в сутки, тихо, в фоне.
-        maybeAutoCheckUpdates()
+        // v0.9.3.2: самопроверка и проверка обновлений — автоматически
+        // при запуске, в фоне, один раз за жизнь activity. Экран
+        // открывается сразу, статус подтягивается по готовности.
+        if (!autoChecksStarted) {
+            autoChecksStarted = true
+            runSelfCheck()
+            checkUpdates()
+        }
     }
 
     /**
@@ -255,7 +266,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.parseColor("#1E3A2F"))
         }
         card.addView(textView("Что нового в $VERSION", 17f, bold = true))
-        card.addView(textView("• Самообновление внутри приложения: «Скачать и установить» качает APK и сразу предлагает установку, без браузера.\n• Проверка VLC на ТВ перед запуском — честная ошибка, если VLC не установлен.\n• DASH из раздельных дорожек YouTube, 60fps в приоритете, проба скорости зеркал.\n• Куки и вход на сайте, самопроверка, JSON-LD/oEmbed, десктопный UA, lazy-iframe, бэкап спаривания.\n• Исправлено: шаринг видеофайла из Telegram (был молчаливый сбой) и Instagram (не находилось видео).", 14f))
+        card.addView(textView("• Исправлен краш при шаринге видеофайла из Telegram (копия файла переехала в сервис, activity сразу закрывается).\n• Instagram: видео теперь идёт через прокси с Referer — VLC должен загружать; на главном экране — кнопка «Поделиться логом» для диагностики.\n• Главный экран почищен: самопроверка и проверка обновлений — автоматически при запуске, без кнопок и лишних полей; бэкап спаривания убран.", 14f))
         card.addView(button("Понятно") {
             prefs.edit().putString("last_seen_version", VERSION).apply()
             renderMode(AutoCast.MainMode.INSTRUCTION)
@@ -269,17 +280,24 @@ class MainActivity : Activity() {
     }
 
     /**
-     * v0.9.1: блок «Настройка один раз» — VLC на Apple TV +
-     * спаривание по PIN один раз + URL проверки обновлений +
-     * API-ключ OpenSubtitles (для внешних субтитров).
+     * v0.9.3.2 (чистка главного экрана, слово Алексея): вместо блока
+     * «Настройка один раз» — только компактные строки статуса.
+     * Убрано: кнопки самопроверки и проверки обновлений (обе проверки
+     * теперь автоматические при запуске), поле URL источника
+     * обновлений (источник — всегда вшитый DEFAULT_UPDATE_URL),
+     * поле ключа OpenSubtitles (отдельного экрана настроек нет —
+     * сохранённый ключ продолжает работать, новый ввести в UI
+     * больше нельзя), кнопки экспорта/импорта спаривания (функционал
+     * бэкапа удалён полностью), кнопка «Сохранить настройки».
+     * Осталось: статус спаривания (+ кнопка спаривания, пока не
+     * спарен), строка самопроверки, строка обновлений (+ кнопка
+     * «Скачать и установить», только когда обновление найдено).
      */
-    private fun buildSetupBlock(): LinearLayout {
+    private fun buildStatusBlock(): LinearLayout {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 12, 0, 0)
         }
-        root.addView(textView("Настройка один раз", 17f, bold = true))
-        root.addView(textView("На Apple TV должен быть установлен VLC. Один раз нужно найти приставку и спарить её по PIN-коду — дальше видео запускаются сами.", 14f))
         val pairLabel = textView(if (isPaired()) "ТВ спарен ✓" else "ТВ пока не спарен", 15f, bold = true)
         setupPairLabel = pairLabel
         root.addView(pairLabel)
@@ -289,150 +307,56 @@ class MainActivity : Activity() {
                 ensureEngine().startPairing()
             })
         }
-        // v0.9.3 (#18): самопроверка — ТВ доступен? спарен? VLC установлен?
-        root.addView(textView("Самопроверка", 15f, bold = true))
+        // Самопроверка — авто при запуске (см. buildInstruction),
+        // строка показывает последний результат или «проверяю…».
         val selfStatus = textView(selfCheckText(), 14f)
         selfCheckStatus = selfStatus
         root.addView(selfStatus)
-        root.addView(button("Проверить") { runSelfCheck() })
-        root.addView(textView("Проверка обновлений", 15f, bold = true))
+        // Обновления — авто при запуске; кнопка скачивания добавляется
+        // в checkUpdates(), только когда обновление реально найдено.
         val status = textView(updateStatusText(), 14f)
         updateStatus = status
         root.addView(status)
-        root.addView(button("Проверить обновления") { checkUpdates(manual = true) })
-        val urlField = EditText(this).apply {
-            // v0.9.2: поле предзаполнено источником по умолчанию
-            // (GitHub Al3xJ0bs/VLC-Cast); пользователь может изменить.
-            setHint("URL latest.json (по умолчанию — GitHub Al3xJ0bs/VLC-Cast)")
-            textSize = 14f
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            setText(updateCheckUrl())
-        }
-        updateUrlField = urlField
-        root.addView(urlField)
-        root.addView(textView("Субтитры из внешних баз (OpenSubtitles)", 15f, bold = true))
-        root.addView(textView("Бесплатный consumer-ключ: регистрация на opensubtitles.com → API. Без ключа внешние субтитры не ищутся, свои дорожки со страницы работают как раньше.", 14f))
-        val keyField = EditText(this).apply {
-            setHint("API-ключ OpenSubtitles")
-            textSize = 14f
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(prefs.getString("opensubtitles_api_key", "") ?: "")
-        }
-        openSubsKeyField = keyField
-        root.addView(keyField)
-        root.addView(bigButton("Сохранить настройки") {
-            prefs.edit()
-                .putString("update_check_url", updateUrlField?.text?.toString()?.trim() ?: "")
-                .putString("opensubtitles_api_key", openSubsKeyField?.text?.toString()?.trim() ?: "")
-                .apply()
-            toast("Настройки сохранены")
-            updateStatus?.text = updateStatusText()
-        })
-        // v0.9.3 (#27): бэкап спаривания — экспорт/импорт без повторного PIN.
-        root.addView(textView("Бэкап спаривания", 15f, bold = true))
-        root.addView(textView("Экспорт — в файл aircast-pairing-backup.txt (поделись им с собой). Файл содержит секреты спаривания: храни в надёжном месте и удали после восстановления.", 14f))
-        root.addView(button("Экспорт спаривания") { exportPairingBackup() })
-        root.addView(button("Импорт спаривания") { importPairingBackup() })
-        // v0.9.3 (#18): авто-самопроверка один раз на версию.
-        if ((prefs.getString("selfcheck_done_for", "") ?: "") != VERSION_CODE.toString()) {
-            runSelfCheck()
-        }
         return root
     }
 
     /** Текст самопроверки (без сети — по сохранённому состоянию). */
     private fun selfCheckText(): String {
         val last = prefs.getString("selfcheck_last_result", "") ?: ""
-        return if (last.isBlank()) "Не проверялось. Нажми «Проверить»." else last
+        return if (last.isBlank()) "Самопроверка: проверяю…" else last
     }
 
     /**
-     * v0.9.3 (#18): самопроверка — три состояния на проверку
-     * (OK/FAIL/UNKNOWN): ТВ доступен (TCP 7000), спарен (учётка
-     * Companion есть), VLC установлен (app_list — только если
-     * спарен, иначе UNKNOWN). Флаг версии ставится сразу, чтобы
-     * повторный рендер экрана не запускал проверку заново.
+     * v0.9.3.2: самопроверка — автоматически при запуске, в фоне
+     * (раньше — по кнопке, один раз на версию). Три состояния на
+     * проверку (OK/FAIL/UNKNOWN): ТВ доступен (TCP 7000), спарен
+     * (учётка Companion есть), VLC установлен (app_list — только
+     * если спарен, иначе UNKNOWN). Результат — одна компактная
+     * строка статуса, а не три строки.
      */
     private fun runSelfCheck() {
-        prefs.edit().putString("selfcheck_done_for", VERSION_CODE.toString()).apply()
-        selfCheckStatus?.text = "Проверяю…"
+        selfCheckStatus?.text = "Самопроверка: проверяю…"
         Thread {
             val host = prefs.getString("lastDeviceHost", null) ?: prefs.getString("lastDevice", null)
-            val lines = ArrayList<String>()
-            if (host.isNullOrBlank()) {
-                lines.add("ТВ: ? (не запомнен — спарь один раз)")
-                lines.add("Спаривание: ✗ (ТВ не спарен)")
-                lines.add("VLC: ? (нужно спаривание)")
+            val result = if (host.isNullOrBlank()) {
+                "Самопроверка: ТВ не спарен — спарь один раз"
             } else {
                 val reachable = try { TvCheck.probe(host, 7000, 2000) } catch (e: Exception) { false }
-                lines.add(if (reachable) "ТВ: ✓ доступен ($host)" else "ТВ: ✗ не отвечает ($host)")
                 val paired = isPaired()
-                lines.add(if (paired) "Спаривание: ✓ ТВ спарен" else "Спаривание: ✗ ТВ не спарен")
-                if (!paired) {
-                    lines.add("VLC: ? (нужно спаривание)")
-                } else {
-                    val vlc = try { CompanionClient(host, credStore = credStore).checkVlcInstalled() } catch (e: Exception) { null }
-                    lines.add(when (vlc) {
-                        true -> "VLC: ✓ установлен"
-                        false -> "VLC: ✗ не установлен — установи VLC из App Store"
-                        null -> "VLC: ? (не удалось проверить)"
-                    })
-                }
+                val vlc = if (!paired) null
+                    else try { CompanionClient(host, credStore = credStore).checkVlcInstalled() } catch (e: Exception) { null }
+                "Самопроверка: ТВ " + (if (reachable) "✓" else "✗ не отвечает") +
+                    " • спарен " + (if (paired) "✓" else "✗") +
+                    " • VLC " + when (vlc) {
+                        true -> "✓"
+                        false -> "✗ не установлен"
+                        null -> "?"
+                    }
             }
-            val result = lines.joinToString("\n")
             prefs.edit().putString("selfcheck_last_result", result).apply()
-            Log.add("app", "самопроверка:\n$result")
+            Log.add("app", "самопроверка: $result")
             runOnUiThread { selfCheckStatus?.text = result }
         }.start()
-    }
-
-    /**
-     * v0.9.3 (#27): экспорт спаривания — запомненный ТВ: Companion-
-     * учётка (companion:<host>) и HAP-учётка старых версий (<host>),
-     * если есть. Файл — filesDir/aircast-pairing-backup.txt, дальше —
-     * системный share sheet (LogFileProvider отдаёт его read-only).
-     */
-    private fun exportPairingBackup() {
-        val host = prefs.getString("lastDeviceHost", null) ?: prefs.getString("lastDevice", null)
-        val entries = ArrayList<Pair<String, String>>()
-        if (!host.isNullOrBlank()) {
-            for (identity in listOf(CompanionClient.companionIdentity(host), host)) {
-                val creds = try { credStore.load(identity) } catch (e: Exception) { null }
-                if (creds != null) entries.add(identity to creds.serialize())
-            }
-        }
-        if (entries.isEmpty()) {
-            toast("Нечего экспортировать — ТВ не спарен")
-            return
-        }
-        try {
-            val file = java.io.File(filesDir, PairingBackup.BACKUP_NAME)
-            file.writeText(PairingBackup.exportAll(entries))
-            Log.add("pair", "бэкап спаривания: ${entries.size} учёток → ${file.name}")
-            val uri = LogFileProvider.uriForBackup(this)
-            val i = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(i, "Сохранить бэкап спаривания"))
-        } catch (e: Exception) {
-            Log.add("pair", "экспорт бэкапа error: ${e.javaClass.simpleName}: ${e.message}")
-            toast("Не удалось сохранить бэкап: ${e.message}")
-        }
-    }
-
-    /** v0.9.3 (#27): импорт спаривания — выбор файла бэкапа (текст). */
-    private fun importPairingBackup() {
-        try {
-            val i = Intent(Intent.ACTION_GET_CONTENT).apply {
-                type = "text/plain"
-                addCategory(Intent.CATEGORY_OPENABLE)
-            }
-            startActivityForResult(Intent.createChooser(i, "Выбери файл бэкапа"), REQUEST_BACKUP_IMPORT)
-        } catch (e: Exception) {
-            toast("Не удалось открыть выбор файла: ${e.message}")
-        }
     }
 
     /** Спарен ли запомненный ТВ (Companion-учётка есть в credStore). */
@@ -446,41 +370,34 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * v0.9.2: действующий URL источника обновлений — сохранённый
-     * пользователем, а если поле пустое (в т.ч. у обновившихся
-     * с v0.9.1, где URL не задавался) — по умолчанию GitHub
-     * Al3xJ0bs/VLC-Cast. Пустое поле в настройках = назад к умолчанию.
-     */
-    private fun updateCheckUrl(): String {
-        val saved = prefs.getString("update_check_url", null)?.trim()
-        return if (saved.isNullOrBlank()) UpdateCheck.DEFAULT_UPDATE_URL else saved
-    }
-
     /** Текст статуса обновлений (без сети — по сохранённому состоянию). */
     private fun updateStatusText(): String {
         val last = prefs.getString("update_last_result", "") ?: ""
-        return if (last.isBlank()) "Источник обновлений: GitHub (Al3xJ0bs/VLC-Cast). Нажми «Проверить обновления»." else last
+        return if (last.isBlank()) "Обновления: проверяю…" else last
     }
 
-    /** Проверка обновлений: вручную по кнопке или раз в сутки при запуске. */
-    private fun checkUpdates(manual: Boolean) {
-        // Поле на экране — приоритет (пользователь мог поменять URL,
-        // не сохраняя); пустое поле = источник по умолчанию.
-        val fieldUrl = updateUrlField?.text?.toString()?.trim()
-        val url = if (fieldUrl.isNullOrBlank()) updateCheckUrl() else fieldUrl
-        updateStatus?.text = "Проверяю обновления…"
+    /**
+     * v0.9.3.2: проверка обновлений — автоматически при запуске, в
+     * фоне (раньше — по кнопке или раз в сутки). Источник — ВСЕГДА
+     * вшитый DEFAULT_UPDATE_URL (GitHub Al3xJ0bs/VLC-Cast);
+     * пользовательский URL удалён вместе с полем ввода. Кнопка
+     * «Скачать и установить» добавляется, только когда обновление
+     * реально найдено.
+     */
+    private fun checkUpdates() {
+        val url = UpdateCheck.DEFAULT_UPDATE_URL
+        updateStatus?.text = "Обновления: проверяю…"
         Thread {
             val fetched = UpdateCheck.fetchLatestResult(url)
             val latest = (fetched as? UpdateCheck.FetchResult.Ok)?.latest
             val result = when (fetched) {
                 // v0.9.3: 404 — файла latest.json нет по этому URL:
                 // честно «источник недоступен», а не «проверьте сеть».
-                is UpdateCheck.FetchResult.Unavailable -> "Источник обновлений недоступен (файл latest.json не найден). Попробуй позже."
-                is UpdateCheck.FetchResult.Error -> "Не удалось проверить обновления (сеть или URL). Попробуй ещё раз."
+                is UpdateCheck.FetchResult.Unavailable -> "Обновления: источник недоступен (файл latest.json не найден). Попробуй позже."
+                is UpdateCheck.FetchResult.Error -> "Обновления: не удалось проверить (сеть). Попробуй ещё раз."
                 is UpdateCheck.FetchResult.Ok ->
-                    if (UpdateCheck.isNewer(VERSION_CODE, fetched.latest)) "Доступна версия ${fetched.latest.versionName} (код ${fetched.latest.versionCode}) — нажми «Скачать и установить» ниже."
-                    else "У вас последняя версия ($VERSION)."
+                    if (UpdateCheck.isNewer(VERSION_CODE, fetched.latest)) "Доступна версия ${fetched.latest.versionName} — нажми «Скачать и установить» ниже."
+                    else "Обновления: установлена последняя версия ($VERSION)."
             }
             prefs.edit()
                 .putString("update_last_result", result)
@@ -534,13 +451,6 @@ class MainActivity : Activity() {
                 setUpdateStatus("Установка из неизвестных источников запрещена. Разреши её в настройках (VLC Cast → установка неизвестных приложений), затем нажми «Скачать и установить» ещё раз.")
             }
         }
-    }
-
-    /** Авто-проверка раз в сутки (источник — по умолчанию GitHub). */
-    private fun maybeAutoCheckUpdates() {
-        val last = prefs.getLong("update_checked_at", 0)
-        if (System.currentTimeMillis() - last < 24 * 3600 * 1000L) return
-        checkUpdates(manual = false)
     }
 
     private fun stepCard(emoji: String, title: String, sub: String): LinearLayout {
@@ -931,39 +841,6 @@ class MainActivity : Activity() {
      */
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        // v0.9.3 (#27): импорт файла бэкапа спаривания.
-        if (requestCode == REQUEST_BACKUP_IMPORT) {
-            if (resultCode != Activity.RESULT_OK || data?.data == null) return
-            val uri = data.data!!
-            Thread {
-                val text = try {
-                    contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                } catch (e: Exception) {
-                    Log.add("pair", "чтение бэкапа error: ${e.javaClass.simpleName}: ${e.message}")
-                    null
-                }
-                val parsed = PairingBackup.parse(text)
-                var restored = 0
-                for (e in parsed.entries) {
-                    try {
-                        credStore.save(e.identity, e.creds)
-                        restored++
-                    } catch (ex: Exception) {
-                        Log.add("pair", "сохранение учётки ${e.identity} error: ${ex.message}")
-                    }
-                }
-                Log.add("pair", "импорт бэкапа: восстановлено $restored, пропущено ${parsed.skipped}")
-                runOnUiThread {
-                    if (restored > 0) {
-                        toast("Восстановлено учёток: $restored — PIN не нужен")
-                        setupPairLabel?.text = if (isPaired()) "ТВ спарен ✓" else "ТВ пока не спарен"
-                    } else {
-                        toast("В файле нет валидных учёток (пропущено: ${parsed.skipped})")
-                    }
-                }
-            }.start()
-            return
-        }
         if (requestCode != AppUpdater.REQUEST_INSTALL_SETTINGS) return
         val updater = appUpdater ?: return
         if (updater.canRequestInstalls()) {
@@ -971,7 +848,10 @@ class MainActivity : Activity() {
             val url = updater.pendingUrl()
             val name = updater.pendingName()
             if (url.isNullOrBlank()) {
-                setUpdateStatus("Разрешение дано. Нажми «Проверить обновления» и «Скачать и установить» ещё раз.")
+                // v0.9.3.2: кнопки проверки обновлений больше нет —
+                // проверка автоматическая при запуске; pending нет,
+                // поэтому просто перепроверяем сейчас.
+                checkUpdates()
                 return
             }
             setUpdateStatus("Разрешение дано — скачиваю $name…")

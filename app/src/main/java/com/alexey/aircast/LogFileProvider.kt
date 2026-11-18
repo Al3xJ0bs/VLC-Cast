@@ -15,11 +15,11 @@ import java.io.FileNotFoundException
  * v0.9.0 — минимальный ContentProvider для шаринга aircast.log.
  * В проекте нет AndroidX и нет Gradle (сборка aapt2 + kotlinc),
  * поэтому androidx FileProvider недоступен — свой провайдер на
- * голом ContentProvider. Отдаёт ТОЛЬКО три своих файла, read-only:
- * filesDir/aircast.log, APK обновления (external files/Download/
- * VLC-Cast-update.apk, v0.9.3 — самообновление внутри приложения)
- * и файл бэкапа спаривания (filesDir/aircast-pairing-backup.txt,
- * v0.9.3 #27). Любой другой путь — FileNotFoundException.
+ * голом ContentProvider. Отдаёт ТОЛЬКО два своих файла, read-only:
+ * filesDir/aircast.log и APK обновления (external files/Download/
+ * VLC-Cast-update.apk, v0.9.3 — самообновление внутри приложения).
+ * v0.9.3.2: файл бэкапа спаривания убран вместе с PairingBackup.
+ * Любой другой путь — FileNotFoundException.
  * exported=false, grantUriPermissions=true (доступ — только через
  * URI из intent).
  *
@@ -32,8 +32,6 @@ class LogFileProvider : ContentProvider() {
         const val LOG_NAME = "aircast.log"
         /** v0.9.3: имя APK обновления (AppUpdater.UPDATE_APK_NAME). */
         const val UPDATE_NAME = "VLC-Cast-update.apk"
-        /** v0.9.3 (#27): имя файла бэкапа спаривания. */
-        const val BACKUP_NAME = "aircast-pairing-backup.txt"
 
         fun uriForFile(ctx: Context, file: File): Uri =
             Uri.parse("content://$AUTHORITY/$LOG_NAME")
@@ -47,13 +45,6 @@ class LogFileProvider : ContentProvider() {
         /** v0.9.3: файл APK обновления (external files/Download). */
         fun updateFile(ctx: Context): File =
             File(ctx.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), UPDATE_NAME)
-
-        /** v0.9.3 (#27): URI файла бэкапа спаривания (share sheet). */
-        fun uriForBackup(ctx: Context): Uri =
-            Uri.parse("content://$AUTHORITY/$BACKUP_NAME")
-
-        /** v0.9.3 (#27): файл бэкапа спаривания (filesDir). */
-        fun backupFile(ctx: Context): File = File(ctx.filesDir, BACKUP_NAME)
     }
 
     override fun onCreate(): Boolean = true
@@ -63,7 +54,6 @@ class LogFileProvider : ContentProvider() {
         val file = when (uri.lastPathSegment) {
             LOG_NAME -> logFile(context!!)
             UPDATE_NAME -> updateFile(context!!)
-            BACKUP_NAME -> backupFile(context!!)
             else -> throw FileNotFoundException("unknown file: ${uri.lastPathSegment}")
         }
         if (!file.exists()) throw FileNotFoundException("file not found: ${uri.lastPathSegment}")

@@ -45,7 +45,6 @@ $KOTLINC -cp "$AJAR" -d tests/test.jar \
   app/src/main/java/com/alexey/aircast/VideoExtractor.kt \
   app/src/main/java/com/alexey/aircast/YouTube.kt \
   app/src/main/java/com/alexey/aircast/DashManifest.kt \
-  app/src/main/java/com/alexey/aircast/PairingBackup.kt \
   app/src/main/java/com/alexey/aircast/StreamProxy.kt \
   app/src/main/java/com/alexey/aircast/StreamProbe.kt \
   app/src/main/java/com/alexey/aircast/EpisodeList.kt \
