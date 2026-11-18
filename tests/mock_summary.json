@@ -71,10 +71,10 @@
     "announce_count": 0,
     "announce_ok": true,
     "announce_first_hex": null,
-    "shared_secret_hex": "9d806791b759bce59c419cb328681c654186861b8ce6bfa2c1faf9b57305321f",
+    "shared_secret_hex": "c7277d169adf0893ba9b857e126cbdd79fa961686a2eac7a5f40e777ce2abf0b",
     "video_stream_id": null,
     "shared_secrets": [
-      "9d806791b759bce59c419cb328681c654186861b8ce6bfa2c1faf9b57305321f"
+      "c7277d169adf0893ba9b857e126cbdd79fa961686a2eac7a5f40e777ce2abf0b"
     ]
   }
 }

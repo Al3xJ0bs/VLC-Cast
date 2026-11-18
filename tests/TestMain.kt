@@ -55,167 +55,7 @@ fun check(name: String, cond: Boolean, extra: String = "") {
 }
 
 fun main() {
-    // --- HKDF-SHA512, RFC 5869 test case 1 ---
-    val ikm = ByteArray(22) { 0x0b }
-    val salt = ByteArray(13) { it.toByte() }
-    val info = ByteArray(10) { (0xf0 + it).toByte() }
-    val okm = Hkdf.expand(salt, info, ikm, 42)
-    check("hkdf-rfc5869", hex(okm) == "832390086cda71fb47625bb5ceb168e4c8e26a1a16ed34d9fc7fe92c1481579338da362cb8d9f925d7cb", hex(okm))
-
-    // --- ChaCha20-Poly1305, RFC 8439 A.5 ---
-    val key = ByteArray(32) { (0x80 + it).toByte() }
-    val nonce = hex("070000004041424344454647")
-    val pt = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.".toByteArray(Charsets.US_ASCII)
-    val aad = hex("50515253c0c1c2c3c4c5c6c7")
-    val cipher = ChaCha20Poly1305(key, key)
-    val ct = cipher.encrypt(pt, nonce = nonce, aad = aad)
-    check("chacha20-poly1305-rfc8439", hex(ct) == "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576d26586cec64b61161ae10b594f09e26a7e902ecbd0600691", hex(ct))
-    val back = ChaCha20Poly1305(key, key).decrypt(ct, nonce = nonce, aad = aad)
-    check("chacha20-roundtrip", back.contentEquals(pt))
-
-    // --- X25519, RFC 7748 5.2 ---
-    val alicePriv = hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")
-    val bobPub = hex("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f")
-    val shared = Curve25519.x25519(alicePriv, bobPub)
-    check("x25519-rfc7748", hex(shared) == "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742", hex(shared))
-
-    // --- Ed25519, RFC 8032 test 1 key + python-computed signature for msg af82 ---
-    val seed = hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
-    val pub = Curve25519.ed25519PublicKey(seed)
-    check("ed25519-pubkey", hex(pub) == "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", hex(pub))
-    val msg = hex("af82")
-    val sig = Curve25519.ed25519Sign(seed, msg)
-    check("ed25519-sign", hex(sig) == "ed652fda879f268e71658f05cb7c0d620ae3998ab7d9a7535719f9a63cbdbcafffd2e8b9ff03a42a61a26a230353db43ddadfcd7b820a87bce90e90a5a44d400", hex(sig))
-    check("ed25519-verify", Curve25519.ed25519Verify(sig, pub, msg))
-    check("ed25519-verify-tamper", !Curve25519.ed25519Verify(sig, pub, hex("af83")))
-
-    // --- TLV8 round-trip ---
-    val tlv = Tlv8().apply {
-        add(0x00, byteArrayOf(0))
-        add(0x01, "hello".toByteArray())
-        add(0x02, ByteArray(300) { 0xAB.toByte() })
-    }.encode()
-    val decoded = Tlv8.decode(tlv)
-    check("tlv8", decoded[1]?.contentEquals("hello".toByteArray()) == true && decoded[2]?.size == 300)
-
-    // --- bplist: decode a Python plistlib fixture, then round-trip ---
-    val fixture = File("tests/fixture.bplist").readBytes()
-    val parsed = Bplist.decode(fixture) as Map<*, *>
-    check("bplist-py-decode", parsed["model"] == "AppleTV5,3" && (parsed["features"] as Long) == 0x1234567890L && parsed["flag"] == true, Bplist.describe(parsed))
-    val nested = parsed["nested"] as Map<*, *>
-    check("bplist-py-nested", nested["arr"] == listOf(1L, 2L, 3L) && (nested["data"] as ByteArray).contentEquals(byteArrayOf(1, 2, 3, 4)))
-    check("bplist-py-unicode", parsed["title"] == "Привет")
-
-    val myDoc: Map<String, Any?> = mapOf(
-        "Content-Location" to "http://example.local/video.mp4",
-        "Start-Position-Seconds" to 12.5,
-        "streamType" to 1,
-        "rate" to 1.0,
-        "ok" to true,
-        "blob" to byteArrayOf(9, 8, 7),
-        "nested" to mapOf("x" to listOf("a", "b"))
-    )
-    val encoded = Bplist.encode(myDoc)
-    File("tests/kotlin.bplist").writeBytes(encoded)
-    val reparsed = Bplist.decode(encoded) as Map<*, *>
-    check("bplist-kt-roundtrip", reparsed["Content-Location"] == "http://example.local/video.mp4" && reparsed["Start-Position-Seconds"] == 12.5 && reparsed["streamType"] == 1L && reparsed["ok"] == true, Bplist.describe(reparsed))
-
-    // --- JS scan decoding (v0.1.2): evaluateJavascript returns the JS
-    // result as a JSON-encoded STRING (quoted, inner quotes escaped).
-    // A direct JSONObject() on it failed on every scan in v0.1.1.
-    // The quoted value below is exactly what the WebView callback gets
-    // for a page with one <video> and one player <iframe>.
-    val quoted = """"{\"videos\":[{\"src\":\"https://example.test/v.mp4\",\"w\":1280,\"h\":720}],\"iframes\":[\"https://player.example.test/?t=abc\",\"https://static.example.test/slider/\"],\"url\":\"https://example.test/\",\"title\":\"T\"}""""
-    val jsDecoded = VideoUrls.decodeJsResult(quoted)
-    check("js-decode-quoted", jsDecoded != null && jsDecoded.startsWith("{\"videos\""), jsDecoded?.take(40) ?: "null")
-    val jsParsed = VideoUrls.parseScanResult(quoted)
-    check("js-parse-videos", jsParsed.videos.size == 1 && jsParsed.videos[0].src == "https://example.test/v.mp4" && jsParsed.videos[0].w == 1280 && jsParsed.videos[0].h == 720, jsParsed.toString())
-    check("js-parse-iframes", jsParsed.iframes.size == 2 && jsParsed.iframes[0] == "https://player.example.test/?t=abc", jsParsed.iframes.toString())
-    val plain = """{"videos":[{"src":"https://example.test/a.mp4","w":0,"h":0}],"iframes":[],"url":"https://example.test/","title":"T"}"""
-    val jsParsedPlain = VideoUrls.parseScanResult(plain)
-    check("js-decode-plain", jsParsedPlain.videos.size == 1 && jsParsedPlain.videos[0].src == "https://example.test/a.mp4", jsParsedPlain.toString())
-    check("js-decode-null", VideoUrls.parseScanResult("null") == com.alexey.aircast.ScanResult(emptyList(), emptyList()))
-    check("js-decode-empty", VideoUrls.parseScanResult("") == com.alexey.aircast.ScanResult(emptyList(), emptyList()))
-    check("js-decode-null-input", VideoUrls.parseScanResult(null) == com.alexey.aircast.ScanResult(emptyList(), emptyList()))
-    // \uXXXX escapes inside the quoted string (e.g. Cyrillic titles).
-    val quotedUni = """"{\"videos\":[],\"iframes\":[],\"url\":\"https://example.test/\",\"title\":\"\u0420\u043e\u0437\u0430\"}""""
-    check("js-decode-unicode", VideoUrls.decodeJsResult(quotedUni)?.contains("Роза") == true, VideoUrls.decodeJsResult(quotedUni) ?: "null")
-
-    // --- Player-iframe detection (v0.1.2): Alloha/Kodik/player/embed ---
-    check("isPlayer-alloha", VideoUrls.isPlayerIframe("https://alloha.example.test/?token_movie=abc&translation=10"))
-    check("isPlayer-kodik", VideoUrls.isPlayerIframe("https://kodik.info/serial/123"))
-    check("isPlayer-embed", VideoUrls.isPlayerIframe("https://example.test/embed/456"))
-    check("isPlayer-slider-false", !VideoUrls.isPlayerIframe("https://static.example.test/slider/"))
-    check("isPlayer-page-false", !VideoUrls.isPlayerIframe("https://example.test/catalog/item/x"))
-
-    // --- Placeholder filter (v0.1.2) ---
-    check("isPlaceholder-blank", VideoUrls.isPlaceholder("https://cdn.plyr.io/static/blank.mp4"))
-    check("isPlaceholder-real", !VideoUrls.isPlaceholder("https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"))
-    check("isPlaceholder-m3u8", !VideoUrls.isPlaceholder("https://example.test/master.m3u8"))
-    // Token URLs must never be logged whole: safeHost strips the query.
-    check("safeHost-strips-query", VideoUrls.safeHost("https://player.example.test/?token_movie=abc&translation=10") == "player.example.test/", VideoUrls.safeHost("https://player.example.test/?token_movie=abc"))
-
-    // --- Candidate filtering (v0.1.3, Failure A): only real video URLs ---
-    // Accepted: .m3u8/.mp4/.mpd/.mov/.m4v/.webm in the PATH (case-insensitive),
-    // the ".../720.mp4:hls:manifest.m3u8" form, Google videoplayback.
-    check("isVideo-m3u8", VideoUrls.isVideoUrl("https://cdn.example.test/hls/master.m3u8?token=abc"))
-    check("isVideo-mp4", VideoUrls.isVideoUrl("https://cdn.example.test/v/720.mp4?token=abc"))
-    check("isVideo-m3u8-upper", VideoUrls.isVideoUrl("https://cdn.example.test/MASTER.M3U8"))
-    check("isVideo-hls-form", VideoUrls.isVideoUrl("https://cdn.example.test/720.mp4:hls:manifest.m3u8"))
-    check("isVideo-hls-form-token", VideoUrls.isVideoUrl("https://cdn.example.test/720.mp4:hls:manifest.m3u8?token=abc"))
-    check("isVideo-mpd", VideoUrls.isVideoUrl("https://cdn.example.test/manifest.mpd"))
-    check("isVideo-mov", VideoUrls.isVideoUrl("https://cdn.example.test/clip.mov"))
-    check("isVideo-m4v", VideoUrls.isVideoUrl("https://cdn.example.test/clip.m4v"))
-    check("isVideo-webm", VideoUrls.isVideoUrl("https://cdn.example.test/clip.webm"))
-    check("isVideo-videoplayback", VideoUrls.isVideoUrl("https://rr1---sn.example.test/videoplayback?expire=1&id=abc"))
-    // Rejected: player pages, API endpoints, substring traps.
-    check("notVideo-storage", !VideoUrls.isVideoUrl("https://kodik.example.test/storage.html"))
-    check("notVideo-api-video", !VideoUrls.isVideoUrl("https://api.example.test/api/video/291174"))
-    check("notVideo-kodik-season", !VideoUrls.isVideoUrl("https://kodikplayer.com/season/123/720p"))
-    check("notVideo-alloha", !VideoUrls.isVideoUrl("https://alloha.example.test/?token_movie=abc&translation=10"))
-    check("notVideo-m3u8-substring", !VideoUrls.isVideoUrl("https://example.test/m3u8player/page.html"))
-    check("notVideo-query-mp4", !VideoUrls.isVideoUrl("https://example.test/page?file=video.mp4"))
-    check("notVideo-page", !VideoUrls.isVideoUrl("https://example.test/catalog/item/x"))
-
-    // --- Pair-Verify M3 cross-check vs pyatv (v0.1.3, Failure B) ---
-    // Expected values computed INDEPENDENTLY in Python (tests/m3_oracle.py)
-    // with pyatv's hkdf_expand + cryptography, following pyatv verify1:
-    //   device_info = clientPub + clientId + serverPub
-    //   signature = Ed25519_sign(clientSeed, device_info)
-    // Inputs: client X25519 priv = 01..20, server X25519 priv = 21..40,
-    // client Ed seed = RFC 8032 test 1, clientId = "TestClient01".
-    // The v0.1.2 (wrong) order serverPub + clientId + clientPub gives a
-    // DIFFERENT signature (8697da5e...) — the two must not be confused.
-    val m3ClientPriv = ByteArray(32) { (it + 1).toByte() }
-    val m3ServerPriv = ByteArray(32) { (it + 33).toByte() }
-    val m3Seed = hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
-    val m3ClientId = "TestClient01".toByteArray(Charsets.UTF_8)
-    val m3ClientPub = Curve25519.x25519Public(m3ClientPriv)
-    val m3ServerPub = Curve25519.x25519Public(m3ServerPriv)
-    check("m3-client-pub", hex(m3ClientPub) == "07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c", hex(m3ClientPub))
-    check("m3-server-pub", hex(m3ServerPub) == "5869aff450549732cbaaed5e5df9b30a6da31cb0e5742bad5ad4a1a768f1a67b", hex(m3ServerPub))
-    val m3Shared = Curve25519.x25519(m3ClientPriv, m3ServerPub)
-    check("m3-shared", hex(m3Shared) == "a84dc7c3c8f058b1b2dc4cd1e9b5dc0a7987f88b6a9564cde3391fc421159e77", hex(m3Shared))
-    val m3SessionKey = Hkdf.expand("Pair-Verify-Encrypt-Salt", "Pair-Verify-Encrypt-Info", m3Shared)
-    check("m3-session-key", hex(m3SessionKey) == "e4aad66348fe8cf67cdb4cf290fd218d96d907aa46fe8c6ad0759f23cea7033f", hex(m3SessionKey))
-    val m3Sig = Curve25519.ed25519Sign(m3Seed, m3ClientPub + m3ClientId + m3ServerPub)
-    check("m3-pyatv-crosscheck", hex(m3Sig) == "03aa417c466f66a7d921943392bbf4df38fa439ac055cdb47a00bc2410093b722eee30b7eaa45a86fe1e8f44dc6160df47df2823d7eb608a5283525fe734e80c", hex(m3Sig))
-    val m3SigWrongOrder = Curve25519.ed25519Sign(m3Seed, m3ServerPub + m3ClientId + m3ClientPub)
-    check("m3-wrong-order-differs", hex(m3SigWrongOrder) == "8697da5ed1058177e31600974d61dfa81ba678ceb2379d595cd55430b084c74d9b7d3b5e89bc174ae86171d062dbfcc9abd3d68d6f925ccd5bf441ebb9ef5e0e", hex(m3SigWrongOrder))
-    check("m3-ltpk-sanity", hex(Curve25519.ed25519PublicKey(m3Seed)) == "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
-
-    // --- bplist 2-byte int (v0.2.0, eventPort -81759) ---
-    // Живой факт: SETUP вернул eventPort, который v0.1.3 читал как -81759.
-    // Причина — двойное знаковое расширение в readIntBE для 2-байтовых
-    // int (см. Bplist.kt). Ручной bplist: словарь {"eventPort": <int 0xC0A1
-    // в 2 байта>} — ровно то, что прислал ТВ. Правильное знаковое чтение:
-    // -16223 (порт как uint16 восстанавливает eventPortFromBplist).
-    val evDoc = Bplist.decode(bplist2ByteInt()) as Map<*, *>
-    check("bplist-2byte-int-signed", evDoc["eventPort"] == -16223L, evDoc.toString())
-    // Отрицательные int переживают round-trip (1-байтовые и 4-байтовые).
-    val negDoc: Map<String, Any?> = mapOf("minus5" to -5, "minus1" to -1, "big" to 49313)
-    val negReparsed = Bplist.decode(Bplist.encode(negDoc)) as Map<*, *>
-    check("bplist-negative-roundtrip", negReparsed["minus5"] == -5L && negReparsed["minus1"] == -1L && negReparsed["big"] == 49313L, Bplist.describe(negReparsed))
+    cryptoTests()
 
     // --- filterVideoUrls (v0.2.0): в списке — только настоящие видео ---
     val mixed = listOf(
@@ -250,13 +90,13 @@ fun main() {
     // JVM-тестах (Android-классы) — читаем исходник как текст.
     val mainActivitySrc = File("app/src/main/java/com/alexey/aircast/MainActivity.kt").readText()
     val shownVersion = Regex("const val VERSION = \"([^\"]+)\"").find(mainActivitySrc)?.groupValues?.get(1)
-    check("version-label", shownVersion == "0.9.3.2", "VERSION=$shownVersion")
+    check("version-label", shownVersion == "0.9.3.3", "VERSION=$shownVersion")
     val buildSh = File("build.sh").readText()
     check("version-build-derives-name", buildSh.contains("const val VERSION") && !Regex("--version-name 0\\.3").containsMatchIn(buildSh),
         "build.sh must derive --version-name from MainActivity.VERSION, not hardcode it")
-    check("version-code-35", buildSh.contains("--version-code 35"), "no --version-code 35 in build.sh")
-    check("version-code-const-35", Regex("const val VERSION_CODE = 35").containsMatchIn(mainActivitySrc),
-        "MainActivity.VERSION_CODE must be 35 (update check compares against it)")
+    check("version-code-36", buildSh.contains("--version-code 36"), "no --version-code 36 in build.sh")
+    check("version-code-const-36", Regex("const val VERSION_CODE = 36").containsMatchIn(mainActivitySrc),
+        "MainActivity.VERSION_CODE must be 36 (update check compares against it)")
     // v0.9.3.1: краш при запуске — двухаргументный registerReceiver
     // на Android 13+ бросает SecurityException. Статическая проверка
     // исходника AppUpdater: флаг NOT_EXPORTED обязан быть, двухаргументной
@@ -265,19 +105,32 @@ fun main() {
     check("updater-receiver-flag", appUpdaterSrc.contains("RECEIVER_NOT_EXPORTED") &&
         !appUpdaterSrc.contains("registerReceiver(r, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))"),
         "AppUpdater must register the download receiver with RECEIVER_NOT_EXPORTED")
-    // v0.9.3.2: краш при шаринге из Telegram — NoDisplay-activity
-    // обязана finish() в onCreate. Статическая проверка исходника
-    // ShareReceiverActivity: копия — в сервисе (FILE_COPY), в самой
-    // activity нет ни фоновых потоков, ни вызовов старой двухшаговой
-    // схемы. (Проверка — по коду, а не по комментариям: история в
-    // шапке класса намеренно упоминает FILE_WAIT/FILE_DELIVER.)
+    // v0.9.3.3 (Telegram: «Не удалось открыть файл»): копия файла —
+    // В САМОЙ ShareReceiverActivity (полупрозрачная тема, живёт до
+    // конца копии). Дизайн 0.9.3.2 (только форвард + finish() сразу,
+    // копия в сервисе) отменён живым логом: grant до сервиса не
+    // доходит (ENOENT). Статическая проверка: в activity есть копия
+    // с таймаутом, прогресс на экране, старт сервиса с готовым путём
+    // + finish() — после копии, а не в onCreate. Тема — Translucent,
+    // а не NoDisplay (см. v0933-manifest-share-translucent ниже).
     val shareReceiverSrc = File("app/src/main/java/com/alexey/aircast/ShareReceiverActivity.kt").readText()
-    check("share-receiver-finish", shareReceiverSrc.contains("CastService.fileCopyIntent") &&
-        shareReceiverSrc.contains("finish()") &&
-        !shareReceiverSrc.contains("Thread {") && !shareReceiverSrc.contains("runOnUiThread {") &&
-        !shareReceiverSrc.contains("fileWaitIntent") && !shareReceiverSrc.contains("fileDeliverIntent") &&
-        !shareReceiverSrc.contains("fun copySharedFile") && !shareReceiverSrc.contains("fun deliverFile"),
-        "ShareReceiverActivity must forward the URI and finish() synchronously in onCreate")
+    check("share-receiver-copy-0933", shareReceiverSrc.contains("fun copySharedFile") &&
+        shareReceiverSrc.contains("copySharedFileWithTimeout") &&
+        shareReceiverSrc.contains("CastService.filePathCastIntent") &&
+        shareReceiverSrc.contains("setContentView") &&
+        shareReceiverSrc.contains("Копирую файл") &&
+        shareReceiverSrc.contains("CastService.fileCopyIntent"),
+        "ShareReceiverActivity must copy the file itself (translucent, lives until the copy ends), then start the service with the path; FILE_COPY stays as fallback")
+    // v0.9.3.3: запуски во VLC сериализованы (лог 07:51:04: 5
+    // параллельных launchVlc → EOF/Connection reset). Статическая
+    // проверка: флаг launchInFlight, гарды в launchAttempt/launchVlc,
+    // снятие в ui-блоках исхода, сброс в resetFlow.
+    val engineSrc0933 = File("app/src/main/java/com/alexey/aircast/CastEngine.kt").readText()
+    check("launch-serialized", engineSrc0933.contains("launchInFlight") &&
+        engineSrc0933.contains("if (launchInFlight)") &&
+        engineSrc0933.contains("launchInFlight = true") &&
+        engineSrc0933.contains("launchInFlight = false"),
+        "launchAttempt/launchVlc must serialize Companion launches (launchInFlight guard)")
     // --- v0.6.0: зеркало, мастер и ручной ввод удалены; share intent ---
     // Зеркало («вообще не интересно», его слово 2026-11-10) и мастер
     // 1-2-3 удалены из приложения полностью. Эти проверки фиксируют,
@@ -304,9 +157,11 @@ fun main() {
     check("v060-manifest-label", manifest.contains("android:label=\"VLC Cast\""),
         "manifest label is not 'VLC Cast'")
     // --- v0.7.0: share — в ShareReceiverActivity, MainActivity — только лаунчер ---
-    // Share идёт в прозрачную ShareReceiverActivity (Theme.NoDisplay):
-    // она стартует CastService и сразу finish(), приложение при
-    // шаринге не открывается. MainActivity — только LAUNCHER (тап по
+    // Share идёт в прозрачную ShareReceiverActivity (v0.9.3.3:
+    // Theme.Translucent.NoTitleBar — ветка файла копирует в живой
+    // activity; раньше — Theme.NoDisplay): для ссылок она стартует
+    // CastService и сразу finish(), приложение при шаринге не
+    // открывается. MainActivity — только LAUNCHER (тап по
     // иконке = экран-инструкция); режимы fallback/pairing/tvpick —
     // только по extras из уведомлений сервиса.
     val mainSection = manifest.substringAfter("android:name=\".MainActivity\"").substringBefore("</activity>")
@@ -316,9 +171,15 @@ fun main() {
         shareSection.contains("android.intent.action.VIEW") && shareSection.contains("android:scheme=\"http\"") &&
         shareSection.contains("android:scheme=\"https\""),
         "SEND/VIEW intent-filters must live on ShareReceiverActivity")
-    check("v070-manifest-share-no-display",
-        shareSection.contains("Theme.NoDisplay") && shareSection.contains("excludeFromRecents=\"true\""),
-        "ShareReceiverActivity must be NoDisplay + excludeFromRecents (no UI on share)")
+    // v0.9.3.3: тема ShareReceiverActivity — Translucent, НЕ
+    // NoDisplay: ветка файла копирует в живой activity (полупрозрачный
+    // экран с прогрессом), а NoDisplay обязана finish() в onCreate.
+    // Для ссылок поведение то же: старт сервиса + finish() сразу,
+    // окна не видно (контента нет, фон прозрачный).
+    check("v0933-manifest-share-translucent",
+        shareSection.contains("Theme.Translucent.NoTitleBar") && !shareSection.contains("Theme.NoDisplay") &&
+        shareSection.contains("excludeFromRecents=\"true\""),
+        "ShareReceiverActivity must be Translucent (not NoDisplay) + excludeFromRecents")
     check("v070-manifest-main-launcher-only",
         mainSection.contains("android.intent.action.MAIN") && mainSection.contains("android.intent.category.LAUNCHER") &&
         !mainSection.contains("android.intent.action.SEND") && !mainSection.contains("android.intent.action.VIEW"),
@@ -1140,7 +1001,10 @@ fun main() {
         !StreamProxy.needsProxy("https://scontent-hel3-1.cdninstagram.com/v/t50.mp4", null) &&
         !StreamProxy.needsProxy("https://example.test/v.mp4", igRef) &&
         StreamProxy.needsProxy("https://video.sibnet.ru/v/1.mp4", "https://video.sibnet.ru/shell.php?videoid=1"))
-    // v0.9.3 (хотфикс Instagram): extractMetaVideoUrls из сырого HTML.
+    // v0.9.3.3 (Instagram: кастится только звук): efg-тесты — в
+    // отдельной функции ниже (kotlinc 1.4 падает с "wrong bytecode
+    // generated", если этот блок остаётся внутри гигантского main()).
+    efgTests0933()
     val igHtml = """<html><head><meta property="og:video" content="https://cdn.example.test/v.mp4"><meta content="https://cdn.example.test/v2.mp4" property="og:video:secure_url"><meta name="twitter:player:stream" content="https://cdn.example.test/v3.mp4?x=1&amp;y=2"><script>{"video_url":"https:\/\/cdn.example.test\/v4.mp4"}</script></head></html>"""
     check("meta-video-urls", VideoUrls.extractMetaVideoUrls(igHtml) == listOf(
         "https://cdn.example.test/v.mp4", "https://cdn.example.test/v2.mp4",
@@ -1224,12 +1088,15 @@ fun main() {
     check("manifest-video-share",
         shareSection.contains("video/*") && shareSection.contains("android.intent.action.SEND"),
         "manifest must declare ACTION_SEND video/* on ShareReceiverActivity")
-    // ShareReceiverActivity v0.9.3.2: видеофайл → fileCopyIntent (копия — в сервисе).
+    // ShareReceiverActivity v0.9.3.3: видеофайл → копия В ACTIVITY
+    // (полупрозрачная, живёт до конца копии) → filePathCastIntent
+    // с готовым путём; fileCopyIntent — только fallback при ошибке
+    // копии (сервисная копия + URI-путь движка).
     val shareSrc = File("app/src/main/java/com/alexey/aircast/ShareReceiverActivity.kt").readText()
     check("share-receiver-file",
-        shareSrc.contains("EXTRA_STREAM") && shareSrc.contains("video/") && shareSrc.contains("fileCopyIntent") &&
-        shareSrc.contains("OpenableColumns.DISPLAY_NAME"),
-        "ShareReceiverActivity must forward video/* files to CastService.fileCopyIntent")
+        shareSrc.contains("EXTRA_STREAM") && shareSrc.contains("video/") && shareSrc.contains("filePathCastIntent") &&
+        shareSrc.contains("fileCopyIntent") && shareSrc.contains("OpenableColumns.DISPLAY_NAME"),
+        "ShareReceiverActivity must copy video/* files itself and start the service with the path (fileCopyIntent is fallback only)")
     // Уведомления v0.9.1: тексты.
     check("notif-texts-v091",
         AutoCast.notifSuccessWithTitleText("Розаріо вампір — 1 сезон, 5 серия") == "«Розаріо вампір — 1 сезон, 5 серия» — запущено на Apple TV ✓" &&
@@ -1356,9 +1223,10 @@ fun main() {
         proxySrc.contains("audio/mp4") && proxySrc.contains("audio/wav") && proxySrc.contains("audio/opus"))
     // Манифест: ACTION_SEND audio/* на ShareReceiverActivity.
     check("manifest-audio-share", shareSection.contains("audio/*"))
-    // ShareReceiverActivity: audio/* → fileCopyIntent с isAudio.
+    // ShareReceiverActivity v0.9.3.3: audio/* → копия в activity +
+    // filePathCastIntent с isAudio; fileCopyIntent — fallback.
     check("share-receiver-audio",
-        shareSrc.contains("audio/") && shareSrc.contains("fileCopyIntent") && shareSrc.contains("isAudio"))
+        shareSrc.contains("audio/") && shareSrc.contains("filePathCastIntent") && shareSrc.contains("fileCopyIntent") && shareSrc.contains("isAudio"))
     // CastEngine: аудио-ветки в исходнике.
     check("engine-audio",
         engineSrc.contains("trySoundCloudMedia") && engineSrc.contains("tryRadioPlaylist") &&
@@ -1368,8 +1236,9 @@ fun main() {
     check("service-audio",
         serviceSrc.contains("EXTRA_FILE_IS_AUDIO") && serviceSrc.contains("notifSuccessAudioText") &&
         serviceSrc.contains("notifProgressAudioText"))
-    // v0.9.3.2 (краш шаринга из Telegram): копия файла — в СЕРВИСЕ,
-    // а не в NoDisplay-activity; activity только форвардит URI.
+    // v0.9.3.3: копия файла — в СЕРВИСЕ осталась только как fallback
+    // (основная — в ShareReceiverActivity); grant до сервиса не
+    // доходит (ENOENT, лог 07:51:32), поэтому primary — activity.
     check("service-copies-file",
         serviceSrc.contains("copySharedFile") && serviceSrc.contains("openInputStream") &&
         serviceSrc.contains("TempFiles.tempName") && serviceSrc.contains("fileCopyIntent") &&
@@ -1548,6 +1417,47 @@ fun main() {
     if (failures > 0) kotlin.system.exitProcess(1)
 }
 
+// v0.9.3.3 (Instagram: кастится только звук): efg из живого лога
+// 07:51:04 (рилс instagram.com/reel/Df1cvoMx59o/): m78 — DASH-аудио
+// (vencode_tag ...dash_ln_heaac_vbr3_audio + bytestart/byteend),
+// m86 — настоящее 720p видео (xpv_progressive...dash_baseline_1_v1).
+// Проба зеркал предпочла аудио по латентности — теперь аудио-efg
+// исключается из видео-кандидатов вообще, а byte-range понижается.
+// Отдельная функция, а не блок в main(): kotlinc 1.4 падает с
+// "wrong bytecode generated", если этот блок остаётся внутри
+// гигантского main().
+fun efgTests0933() {
+    val igAudioEfg = "eyJ2ZW5jb2RlX3RhZyI6ImlnLXhwdmRzLmNsaXBzLmlnd3d3LUMzLmRhc2hfbG5faGVhYWNfdmJyM19hdWRpbyIsInZpZGVvX2lkIjpudWxsLCJvaWxfdXJsZ2VuX2FwcF9pZCI6OTM2NjE5NzQzMzkyNDU5LCJjbGllbnRfbmFtZSI6ImlnIiwieHB2X2Fzc2V0X2lkIjoxNzk4NzMwNjMxMzkyNjk4LCJhc3NldF9hZ2VfZGF5cyI6MCwidmlfdXNlY2FzZV9pZCI6MTAwOTksImR1cmF0aW9uX3MiOjExLCJiaXRyYXRlIjo2MjY2NiwidXJsZ2VuX3NvdXJjZSI6Ind3dyJ9"
+    val igVideoEfg = "eyJ2ZW5jb2RlX3RhZyI6Inhwdl9wcm9ncmVzc2l2ZS5JTlNUQUdSQU0uQ0xJUFMuQzMuNzIwLmRhc2hfYmFzZWxpbmVfMV92MSIsInhwdl9hc3NldF9pZCI6MTc5ODczMDYzMTM5MjY5OCwiYXNzZXRfYWdlX2RheXMiOjAsInZpX3VzZWNhc2VfaWQiOjEwMDk5LCJkdXJhdGlvbl9zIjoxMSwidXJsZ2VuX3NvdXJjZSI6Ind3dyJ9"
+    val igAudioUrl = "https://scontent-iev1-1.cdninstagram.com/o1/v/t2/f2/m78/AQPzo2zC.mp4?efg=$igAudioEfg&bytestart=928&byteend=18341"
+    val igVideoUrl = "https://scontent-iev1-1.cdninstagram.com/o1/v/t2/f2/m86/AQPzwfs2.mp4?efg=$igVideoEfg"
+    check("efg-decode-audio", VideoUrls.decodeEfgTag(igAudioUrl) == "ig-xpvds.clips.igwww-C3.dash_ln_heaac_vbr3_audio",
+        VideoUrls.decodeEfgTag(igAudioUrl) ?: "null")
+    check("efg-decode-video", VideoUrls.decodeEfgTag(igVideoUrl) == "xpv_progressive.INSTAGRAM.CLIPS.C3.720.dash_baseline_1_v1",
+        VideoUrls.decodeEfgTag(igVideoUrl) ?: "null")
+    check("efg-audio-only", VideoUrls.isAudioOnlyEfg(igAudioUrl) && !VideoUrls.isAudioOnlyEfg(igVideoUrl),
+        "audio efg must be audio-only, video efg must not")
+    check("efg-no-efg", !VideoUrls.isAudioOnlyEfg("https://example.test/v.mp4") &&
+        VideoUrls.decodeEfgTag("https://example.test/v.mp4") == null &&
+        !VideoUrls.isAudioOnlyEfg("https://example.test/v.mp4?efg=!!!not-base64!!!"),
+        "no efg / garbage efg must not be audio-only")
+    check("byterange-detect", VideoUrls.hasByteRange(igAudioUrl) && !VideoUrls.hasByteRange(igVideoUrl),
+        "bytestart/byteend must mark a byte-range URL")
+    check("byterange-score", AutoCast.score(VideoCandidate(igAudioUrl, "mp4", "720p", null, "t")) <
+        AutoCast.score(VideoCandidate(igVideoUrl, "mp4", "720p", null, "t")),
+        "byte-range segment must score below the full file of the same format/quality")
+    // Страховка в orderedAttempts: аудио-efg с БОЛЬШИМ качеством
+    // (2160p) всё равно не попадает в видео-пул — первым идёт видео.
+    check("ordered-efg-filter", AutoCast.orderedAttempts(listOf(
+        VideoCandidate(igAudioUrl, "mp4", "2160p", null, "t"),
+        VideoCandidate(igVideoUrl, "mp4", "720p", null, "t"))).firstOrNull()?.url == igVideoUrl,
+        "audio-efg must not be in the video pool even with higher quality")
+    // Явный аудио-флоу (isAudio) efg-фильтр не трогает.
+    check("ordered-efg-audio-kept", AutoCast.orderedAttempts(listOf(
+        VideoCandidate(igAudioUrl, "mp4", "720p", null, "t", isAudio = true))).firstOrNull()?.url == igAudioUrl,
+        "explicit audio flow must keep its candidate")
+}
+
 /** Локальный HTTP-сервер для probe-тестов: path → (код, тело). */
 fun localHttpServer(responses: Map<String, Pair<Int, String>>): Pair<Int, java.net.ServerSocket> {
     val server = java.net.ServerSocket(0)
@@ -1593,4 +1503,172 @@ fun bplist2ByteInt(): ByteArray {
     b(0, 0, 0, 0, 0, 0, 1, 1)
     longBE(3); longBE(0); longBE(24)
     return out.toByteArray()
+}
+
+
+// Крипто-тесты (HKDF/ChaCha/X25519/Ed25519/TLV8/bplist) —
+// вынесены из main(): kotlinc 1.4 падает с "wrong bytecode
+// generated", когда main() перерастает лимит кодогена.
+fun cryptoTests() {
+// --- HKDF-SHA512, RFC 5869 test case 1 ---
+val ikm = ByteArray(22) { 0x0b }
+val salt = ByteArray(13) { it.toByte() }
+val info = ByteArray(10) { (0xf0 + it).toByte() }
+val okm = Hkdf.expand(salt, info, ikm, 42)
+check("hkdf-rfc5869", hex(okm) == "832390086cda71fb47625bb5ceb168e4c8e26a1a16ed34d9fc7fe92c1481579338da362cb8d9f925d7cb", hex(okm))
+
+// --- ChaCha20-Poly1305, RFC 8439 A.5 ---
+val key = ByteArray(32) { (0x80 + it).toByte() }
+val nonce = hex("070000004041424344454647")
+val pt = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.".toByteArray(Charsets.US_ASCII)
+val aad = hex("50515253c0c1c2c3c4c5c6c7")
+val cipher = ChaCha20Poly1305(key, key)
+val ct = cipher.encrypt(pt, nonce = nonce, aad = aad)
+check("chacha20-poly1305-rfc8439", hex(ct) == "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576d26586cec64b61161ae10b594f09e26a7e902ecbd0600691", hex(ct))
+val back = ChaCha20Poly1305(key, key).decrypt(ct, nonce = nonce, aad = aad)
+check("chacha20-roundtrip", back.contentEquals(pt))
+
+// --- X25519, RFC 7748 5.2 ---
+val alicePriv = hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")
+val bobPub = hex("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f")
+val shared = Curve25519.x25519(alicePriv, bobPub)
+check("x25519-rfc7748", hex(shared) == "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742", hex(shared))
+
+// --- Ed25519, RFC 8032 test 1 key + python-computed signature for msg af82 ---
+val seed = hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+val pub = Curve25519.ed25519PublicKey(seed)
+check("ed25519-pubkey", hex(pub) == "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", hex(pub))
+val msg = hex("af82")
+val sig = Curve25519.ed25519Sign(seed, msg)
+check("ed25519-sign", hex(sig) == "ed652fda879f268e71658f05cb7c0d620ae3998ab7d9a7535719f9a63cbdbcafffd2e8b9ff03a42a61a26a230353db43ddadfcd7b820a87bce90e90a5a44d400", hex(sig))
+check("ed25519-verify", Curve25519.ed25519Verify(sig, pub, msg))
+check("ed25519-verify-tamper", !Curve25519.ed25519Verify(sig, pub, hex("af83")))
+
+// --- TLV8 round-trip ---
+val tlv = Tlv8().apply {
+    add(0x00, byteArrayOf(0))
+    add(0x01, "hello".toByteArray())
+    add(0x02, ByteArray(300) { 0xAB.toByte() })
+}.encode()
+val decoded = Tlv8.decode(tlv)
+check("tlv8", decoded[1]?.contentEquals("hello".toByteArray()) == true && decoded[2]?.size == 300)
+
+// --- bplist: decode a Python plistlib fixture, then round-trip ---
+val fixture = File("tests/fixture.bplist").readBytes()
+val parsed = Bplist.decode(fixture) as Map<*, *>
+check("bplist-py-decode", parsed["model"] == "AppleTV5,3" && (parsed["features"] as Long) == 0x1234567890L && parsed["flag"] == true, Bplist.describe(parsed))
+val nested = parsed["nested"] as Map<*, *>
+check("bplist-py-nested", nested["arr"] == listOf(1L, 2L, 3L) && (nested["data"] as ByteArray).contentEquals(byteArrayOf(1, 2, 3, 4)))
+check("bplist-py-unicode", parsed["title"] == "Привет")
+
+val myDoc: Map<String, Any?> = mapOf(
+    "Content-Location" to "http://example.local/video.mp4",
+    "Start-Position-Seconds" to 12.5,
+    "streamType" to 1,
+    "rate" to 1.0,
+    "ok" to true,
+    "blob" to byteArrayOf(9, 8, 7),
+    "nested" to mapOf("x" to listOf("a", "b"))
+)
+val encoded = Bplist.encode(myDoc)
+File("tests/kotlin.bplist").writeBytes(encoded)
+val reparsed = Bplist.decode(encoded) as Map<*, *>
+check("bplist-kt-roundtrip", reparsed["Content-Location"] == "http://example.local/video.mp4" && reparsed["Start-Position-Seconds"] == 12.5 && reparsed["streamType"] == 1L && reparsed["ok"] == true, Bplist.describe(reparsed))
+
+// --- JS scan decoding (v0.1.2): evaluateJavascript returns the JS
+// result as a JSON-encoded STRING (quoted, inner quotes escaped).
+// A direct JSONObject() on it failed on every scan in v0.1.1.
+// The quoted value below is exactly what the WebView callback gets
+// for a page with one <video> and one player <iframe>.
+val quoted = """"{\"videos\":[{\"src\":\"https://example.test/v.mp4\",\"w\":1280,\"h\":720}],\"iframes\":[\"https://player.example.test/?t=abc\",\"https://static.example.test/slider/\"],\"url\":\"https://example.test/\",\"title\":\"T\"}""""
+val jsDecoded = VideoUrls.decodeJsResult(quoted)
+check("js-decode-quoted", jsDecoded != null && jsDecoded.startsWith("{\"videos\""), jsDecoded?.take(40) ?: "null")
+val jsParsed = VideoUrls.parseScanResult(quoted)
+check("js-parse-videos", jsParsed.videos.size == 1 && jsParsed.videos[0].src == "https://example.test/v.mp4" && jsParsed.videos[0].w == 1280 && jsParsed.videos[0].h == 720, jsParsed.toString())
+check("js-parse-iframes", jsParsed.iframes.size == 2 && jsParsed.iframes[0] == "https://player.example.test/?t=abc", jsParsed.iframes.toString())
+val plain = """{"videos":[{"src":"https://example.test/a.mp4","w":0,"h":0}],"iframes":[],"url":"https://example.test/","title":"T"}"""
+val jsParsedPlain = VideoUrls.parseScanResult(plain)
+check("js-decode-plain", jsParsedPlain.videos.size == 1 && jsParsedPlain.videos[0].src == "https://example.test/a.mp4", jsParsedPlain.toString())
+check("js-decode-null", VideoUrls.parseScanResult("null") == com.alexey.aircast.ScanResult(emptyList(), emptyList()))
+check("js-decode-empty", VideoUrls.parseScanResult("") == com.alexey.aircast.ScanResult(emptyList(), emptyList()))
+check("js-decode-null-input", VideoUrls.parseScanResult(null) == com.alexey.aircast.ScanResult(emptyList(), emptyList()))
+// \uXXXX escapes inside the quoted string (e.g. Cyrillic titles).
+val quotedUni = """"{\"videos\":[],\"iframes\":[],\"url\":\"https://example.test/\",\"title\":\"\u0420\u043e\u0437\u0430\"}""""
+check("js-decode-unicode", VideoUrls.decodeJsResult(quotedUni)?.contains("Роза") == true, VideoUrls.decodeJsResult(quotedUni) ?: "null")
+
+// --- Player-iframe detection (v0.1.2): Alloha/Kodik/player/embed ---
+check("isPlayer-alloha", VideoUrls.isPlayerIframe("https://alloha.example.test/?token_movie=abc&translation=10"))
+check("isPlayer-kodik", VideoUrls.isPlayerIframe("https://kodik.info/serial/123"))
+check("isPlayer-embed", VideoUrls.isPlayerIframe("https://example.test/embed/456"))
+check("isPlayer-slider-false", !VideoUrls.isPlayerIframe("https://static.example.test/slider/"))
+check("isPlayer-page-false", !VideoUrls.isPlayerIframe("https://example.test/catalog/item/x"))
+
+// --- Placeholder filter (v0.1.2) ---
+check("isPlaceholder-blank", VideoUrls.isPlaceholder("https://cdn.plyr.io/static/blank.mp4"))
+check("isPlaceholder-real", !VideoUrls.isPlaceholder("https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"))
+check("isPlaceholder-m3u8", !VideoUrls.isPlaceholder("https://example.test/master.m3u8"))
+// Token URLs must never be logged whole: safeHost strips the query.
+check("safeHost-strips-query", VideoUrls.safeHost("https://player.example.test/?token_movie=abc&translation=10") == "player.example.test/", VideoUrls.safeHost("https://player.example.test/?token_movie=abc"))
+
+// --- Candidate filtering (v0.1.3, Failure A): only real video URLs ---
+// Accepted: .m3u8/.mp4/.mpd/.mov/.m4v/.webm in the PATH (case-insensitive),
+// the ".../720.mp4:hls:manifest.m3u8" form, Google videoplayback.
+check("isVideo-m3u8", VideoUrls.isVideoUrl("https://cdn.example.test/hls/master.m3u8?token=abc"))
+check("isVideo-mp4", VideoUrls.isVideoUrl("https://cdn.example.test/v/720.mp4?token=abc"))
+check("isVideo-m3u8-upper", VideoUrls.isVideoUrl("https://cdn.example.test/MASTER.M3U8"))
+check("isVideo-hls-form", VideoUrls.isVideoUrl("https://cdn.example.test/720.mp4:hls:manifest.m3u8"))
+check("isVideo-hls-form-token", VideoUrls.isVideoUrl("https://cdn.example.test/720.mp4:hls:manifest.m3u8?token=abc"))
+check("isVideo-mpd", VideoUrls.isVideoUrl("https://cdn.example.test/manifest.mpd"))
+check("isVideo-mov", VideoUrls.isVideoUrl("https://cdn.example.test/clip.mov"))
+check("isVideo-m4v", VideoUrls.isVideoUrl("https://cdn.example.test/clip.m4v"))
+check("isVideo-webm", VideoUrls.isVideoUrl("https://cdn.example.test/clip.webm"))
+check("isVideo-videoplayback", VideoUrls.isVideoUrl("https://rr1---sn.example.test/videoplayback?expire=1&id=abc"))
+// Rejected: player pages, API endpoints, substring traps.
+check("notVideo-storage", !VideoUrls.isVideoUrl("https://kodik.example.test/storage.html"))
+check("notVideo-api-video", !VideoUrls.isVideoUrl("https://api.example.test/api/video/291174"))
+check("notVideo-kodik-season", !VideoUrls.isVideoUrl("https://kodikplayer.com/season/123/720p"))
+check("notVideo-alloha", !VideoUrls.isVideoUrl("https://alloha.example.test/?token_movie=abc&translation=10"))
+check("notVideo-m3u8-substring", !VideoUrls.isVideoUrl("https://example.test/m3u8player/page.html"))
+check("notVideo-query-mp4", !VideoUrls.isVideoUrl("https://example.test/page?file=video.mp4"))
+check("notVideo-page", !VideoUrls.isVideoUrl("https://example.test/catalog/item/x"))
+
+// --- Pair-Verify M3 cross-check vs pyatv (v0.1.3, Failure B) ---
+// Expected values computed INDEPENDENTLY in Python (tests/m3_oracle.py)
+// with pyatv's hkdf_expand + cryptography, following pyatv verify1:
+//   device_info = clientPub + clientId + serverPub
+//   signature = Ed25519_sign(clientSeed, device_info)
+// Inputs: client X25519 priv = 01..20, server X25519 priv = 21..40,
+// client Ed seed = RFC 8032 test 1, clientId = "TestClient01".
+// The v0.1.2 (wrong) order serverPub + clientId + clientPub gives a
+// DIFFERENT signature (8697da5e...) — the two must not be confused.
+val m3ClientPriv = ByteArray(32) { (it + 1).toByte() }
+val m3ServerPriv = ByteArray(32) { (it + 33).toByte() }
+val m3Seed = hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+val m3ClientId = "TestClient01".toByteArray(Charsets.UTF_8)
+val m3ClientPub = Curve25519.x25519Public(m3ClientPriv)
+val m3ServerPub = Curve25519.x25519Public(m3ServerPriv)
+check("m3-client-pub", hex(m3ClientPub) == "07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c", hex(m3ClientPub))
+check("m3-server-pub", hex(m3ServerPub) == "5869aff450549732cbaaed5e5df9b30a6da31cb0e5742bad5ad4a1a768f1a67b", hex(m3ServerPub))
+val m3Shared = Curve25519.x25519(m3ClientPriv, m3ServerPub)
+check("m3-shared", hex(m3Shared) == "a84dc7c3c8f058b1b2dc4cd1e9b5dc0a7987f88b6a9564cde3391fc421159e77", hex(m3Shared))
+val m3SessionKey = Hkdf.expand("Pair-Verify-Encrypt-Salt", "Pair-Verify-Encrypt-Info", m3Shared)
+check("m3-session-key", hex(m3SessionKey) == "e4aad66348fe8cf67cdb4cf290fd218d96d907aa46fe8c6ad0759f23cea7033f", hex(m3SessionKey))
+val m3Sig = Curve25519.ed25519Sign(m3Seed, m3ClientPub + m3ClientId + m3ServerPub)
+check("m3-pyatv-crosscheck", hex(m3Sig) == "03aa417c466f66a7d921943392bbf4df38fa439ac055cdb47a00bc2410093b722eee30b7eaa45a86fe1e8f44dc6160df47df2823d7eb608a5283525fe734e80c", hex(m3Sig))
+val m3SigWrongOrder = Curve25519.ed25519Sign(m3Seed, m3ServerPub + m3ClientId + m3ClientPub)
+check("m3-wrong-order-differs", hex(m3SigWrongOrder) == "8697da5ed1058177e31600974d61dfa81ba678ceb2379d595cd55430b084c74d9b7d3b5e89bc174ae86171d062dbfcc9abd3d68d6f925ccd5bf441ebb9ef5e0e", hex(m3SigWrongOrder))
+check("m3-ltpk-sanity", hex(Curve25519.ed25519PublicKey(m3Seed)) == "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+
+// --- bplist 2-byte int (v0.2.0, eventPort -81759) ---
+// Живой факт: SETUP вернул eventPort, который v0.1.3 читал как -81759.
+// Причина — двойное знаковое расширение в readIntBE для 2-байтовых
+// int (см. Bplist.kt). Ручной bplist: словарь {"eventPort": <int 0xC0A1
+// в 2 байта>} — ровно то, что прислал ТВ. Правильное знаковое чтение:
+// -16223 (порт как uint16 восстанавливает eventPortFromBplist).
+val evDoc = Bplist.decode(bplist2ByteInt()) as Map<*, *>
+check("bplist-2byte-int-signed", evDoc["eventPort"] == -16223L, evDoc.toString())
+// Отрицательные int переживают round-trip (1-байтовые и 4-байтовые).
+val negDoc: Map<String, Any?> = mapOf("minus5" to -5, "minus1" to -1, "big" to 49313)
+val negReparsed = Bplist.decode(Bplist.encode(negDoc)) as Map<*, *>
+check("bplist-negative-roundtrip", negReparsed["minus5"] == -5L && negReparsed["minus1"] == -1L && negReparsed["big"] == 49313L, Bplist.describe(negReparsed))
 }

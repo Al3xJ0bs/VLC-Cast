@@ -42,14 +42,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- v0.7.0: прозрачный приёмник шаринга. Theme.NoDisplay —
-             у activity нет UI: она вытаскивает URL, стартует
-             CastService и сразу finish(). Пользователь остаётся
-             в Chrome, приложение не открывается. -->
+        <!-- v0.7.0: прозрачный приёмник шаринга. v0.9.3.3: тема —
+             Theme.Translucent.NoTitleBar, НЕ NoDisplay: ветка файла
+             теперь КОПИРУЕТ в живой activity (полупрозрачный экран
+             с прогрессом) — NoDisplay обязана finish() в onCreate
+             и не может жить до конца копии. Для ссылок поведение
+             то же: старт сервиса + finish() сразу, окна не видно
+             (контента нет, фон прозрачный). configChanges — чтобы
+             поворот не пересоздал activity посреди копии. -->
         <activity
             android:name=".ShareReceiverActivity"
             android:exported="true"
-            android:theme="@android:style/Theme.NoDisplay"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:excludeFromRecents="true"
             android:noHistory="true">
             <intent-filter>

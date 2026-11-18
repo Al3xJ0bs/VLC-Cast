@@ -20,7 +20,7 @@ package com.alexey.aircast
  * Telegram — IllegalStateException: did not call finish() prior
  * to onResume() completing.
  *
- * v0.9.3.2 (порядок теперь): activity — ТОЛЬКО форвардер: в onCreate
+ * v0.9.3.2 (порядок тогда): activity — ТОЛЬКО форвардер: в onCreate
  * извлекает URI, синхронно стартует сервис (FILE_COPY) и НЕМЕДЛЕННО
  * вызывает finish() в том же onCreate. Никаких потоков и отложенных
  * finish() в activity. Копию файла в cacheDir/aircast-temp делает
@@ -29,11 +29,18 @@ package com.alexey.aircast
  * при ошибке копии — fallback на URI-путь. FILE_WAIT/FILE_DELIVER
  * удалены вместе со всей двухшаговой схемой.
  *
+ * v0.9.3.3 (живой лог 07:51:32): сервисная копия падает с
+ * FileNotFoundException ENOENT — grant до сервиса не доходит.
+ * Теперь основная копия — в самой activity (полупрозрачная тема,
+ * живёт до конца копии, затем сервис с готовым путём через
+ * DELIVER_PATH); FILE_COPY остался только как fallback при ошибке
+ * копии в activity.
+ *
  * Старые пути сохранены: ACTION_CAST + EXTRA_FILE_PATH (0.9.2)
  * и ACTION_CAST + data URI (0.9.1, fallback при ошибке копии).
  */
 object FileShareRoute {
-    /** v0.9.3.2: activity передаёт URI сервису, копия — в сервисе. */
+    /** v0.9.3.3: FILE_COPY — fallback, если копия в activity не удалась. */
     const val ACTION_FILE_COPY = "com.alexey.aircast.action.FILE_COPY"
 
     enum class Route { COPY_FILE, DELIVER_PATH, FILE_URI, URL, NONE }

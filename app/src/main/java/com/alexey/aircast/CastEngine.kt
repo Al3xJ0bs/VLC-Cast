@@ -238,6 +238,12 @@ class CastEngine(
     private var autoLaunchGen: Int = 0
     /** v0.9.3 (#14): установка VLC уже проверена в этом флоу. */
     private var vlcChecked: Boolean = false
+    /** v0.9.3.3: запуск во VLC уже идёт (Companion-коннект в полёте).
+     *  Параллельные launchVlc гонялись друг с другом (лог 07:51:04:
+     *  5 запусков m78 в одну секунду → EOF/Connection reset) — один
+     *  коннект за раз, дубли пропускаются. Сбрасывается в resetFlow. */
+    @Volatile
+    private var launchInFlight: Boolean = false
     private var retryIndex: Int = 0
     private var episodeLinks: List<PageLink> = emptyList()
     private var currentSubs: List<SubTrack> = emptyList()
@@ -444,6 +450,8 @@ class CastEngine(
 
     /** Сброс авто-флоу: новый share / новый запуск. */
     private fun resetFlow() {
+        // v0.9.3.3: зависший флаг запуска не переживает флоу.
+        launchInFlight = false
         // v0.9.1: позиция текущего видео — до сброса состояния.
         saveCurrentPosition()
         watchStartMs = 0L
@@ -1307,6 +1315,19 @@ class CastEngine(
             Log.add("browser", "пропущен placeholder (не настоящее видео): ${VideoUrls.safeHost(url)}")
             return
         }
+        // v0.9.3.3 (Instagram: кастится только звук): DASH-аудио по
+        // efg — не видео-кандидат вообще (кроме явного аудио-флоу:
+        // isAudio/audioPage — там аудио и должно быть аудио).
+        // Декодированный vencode_tag — в лог для Instagram-кандидатов,
+        // чтобы следующий прогон было видно сразу.
+        val efgTag = VideoUrls.decodeEfgTag(url)
+        if (efgTag != null && (url.contains("cdninstagram.com") || url.contains("instagram.com"))) {
+            Log.add("browser", "instagram efg vencode_tag=$efgTag: ${VideoUrls.safeHost(url)}")
+        }
+        if (!isAudio && !audioPage && VideoUrls.isAudioOnlyEfg(url)) {
+            Log.add("browser", "пропущен DASH-аудио (efg vencode_tag=$efgTag): ${VideoUrls.safeHost(url)}")
+            return
+        }
         // v0.9.2: аудио — в кандидаты наравне с видео (видео в
         // приоритете при выборе — AutoCast.orderedAttempts); аудио
         // определяется явно, по URL или по странице аудио-сервиса.
@@ -1482,6 +1503,14 @@ class CastEngine(
      * следующий кандидат; все исчерпаны — честное «Видео недоступно».
      */
     private fun launchAttempt() {
+        // v0.9.3.3: запуски сериализованы — пока один Companion-коннект
+        // в полёте, дублирующую попытку пропускаем: ретрай ведёт сам
+        // летящий запуск (его catch вызывает launchAttempt), а дубль
+        // только сбил бы retryIndex и устроил гонку коннектов.
+        if (launchInFlight) {
+            Log.add("retry", "запуск уже идёт — попытку ${retryIndex + 1} пропускаю")
+            return
+        }
         val c = retryAttempts.getOrNull(retryIndex)
         if (c == null) {
             Log.add("retry", "все ${retryAttempts.size} попыток исчерпаны — видео недоступно")
@@ -1935,10 +1964,23 @@ class CastEngine(
         // ПОЛНОСТЬЮ в лог (только в лог, не в уведомление: там могут
         // быть токены). По нему — точная диагностика следующего прогона.
         Log.add("vlc", "итоговый URL во VLC: $launchUrl" + if (subUrl != null) " (sub=$subUrl)" else "")
+        // v0.9.3.3: один Companion-коннект за раз (см. launchAttempt):
+        // параллельные launchVlc гонялись друг с другом и роняли
+        // друг друга EOF/Connection reset (лог 07:51:04).
+        if (launchInFlight) {
+            Log.add("vlc", "запуск уже идёт — дубль пропущен")
+            return
+        }
+        launchInFlight = true
         thread {
             try {
                 CompanionClient(dev.host, credStore = credStore).connectAndLaunchVlc(launchUrl, subUrl)
                 ui {
+                    // v0.9.3.3: флаг снимается здесь, в начале ui-блока,
+                    // а не в finally потока: отложенный блок выполняется
+                    // строго после снятия, и дубль launchAttempt между
+                    // возвратом коннекта и этим блоком видит флаг живым.
+                    launchInFlight = false
                     launched = true
                     launchedCandidate = selectedCandidate
                     flowState = FlowState.LAUNCHED
@@ -1972,6 +2014,10 @@ class CastEngine(
             } catch (e: Exception) {
                 Log.add("vlc", "запуск ОШИБКА: ${e.javaClass.simpleName}: ${e.message}")
                 ui {
+                    // v0.9.3.3: флаг — здесь же (см. выше): ретрай из
+                    // этого блока вызывает launchAttempt() уже после
+                    // снятия флага.
+                    launchInFlight = false
                     // v0.9.0: ошибка Companion вскоре после запуска —
                     // тоже ретрай следующим кандидатом, а не сразу ошибка.
                     val current = retryAttempts.getOrNull(retryIndex)
@@ -2229,8 +2275,10 @@ class CastEngine(
             addCandidate(fileUrl, if (currentFileIsAudio) "аудиофайл" else "файл из Telegram/галереи", null, durationSec = dur, isAudio = currentFileIsAudio)
             startTicker()
         } catch (e: Exception) {
+            // v0.9.3.3: класс исключения — и в лог, и пользователю:
+            // «Не удалось открыть файл» без класса не диагностируется.
             Log.add("file", "открытие файла error: ${e.javaClass.simpleName}: ${e.message}")
-            failFlow { listener.onFileError("Не удалось открыть файл: ${e.message}") }
+            failFlow { listener.onFileError("Не удалось открыть файл: ${e.javaClass.simpleName}: ${e.message}") }
         }
     }
 
@@ -2249,10 +2297,13 @@ class CastEngine(
                 copyToTempFile(uri)
             }
         } catch (e: Exception) {
-            Log.add("file", "openFileDescriptor error: ${e.message} — пробую копию")
+            Log.add("file", "openFileDescriptor error: ${e.javaClass.simpleName}: ${e.message} — пробую копию")
             try {
                 copyToTempFile(uri)
             } catch (e2: Exception) {
+                // v0.9.3.3: класс ошибки — в лог, чтобы следующий
+                // прогон был решающим (ENOENT vs SecurityException).
+                Log.add("file", "копия openInputStream error: ${e2.javaClass.simpleName}: ${e2.message}")
                 null
             }
         }

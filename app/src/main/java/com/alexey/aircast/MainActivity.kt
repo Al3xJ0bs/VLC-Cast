@@ -53,9 +53,9 @@ import android.widget.Toast
  */
 class MainActivity : Activity() {
     companion object {
-        const val VERSION = "0.9.3.2"
+        const val VERSION = "0.9.3.3"
         /** v0.9.1: versionCode — для проверки обновлений (сравнивается с latest.json). */
-        const val VERSION_CODE = 35
+        const val VERSION_CODE = 36
         const val EXTRA_SAFE_MODE = "aircast_safe_mode"
         private const val REQ_POST_NOTIFICATIONS = 1001
     }

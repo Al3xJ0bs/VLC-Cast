@@ -140,6 +140,11 @@ object AutoCast {
         // что в прошлый раз, получает +5 (выше любого качества).
         if (!preferredAudio.isNullOrBlank() && c.audioLabel != null &&
             c.audioLabel.equals(preferredAudio, ignoreCase = true)) s += 5
+        // v0.9.3.3: диапазон байт DASH-сегмента (bytestart/byteend) —
+        // не полный файл: -3, ниже любого полного файла того же
+        // формата (но выше более низкого качества). Если полных
+        // альтернатив нет — сегмент всё равно используется.
+        if (VideoUrls.hasByteRange(c.url)) s -= 3
         return s
     }
 
@@ -161,7 +166,10 @@ object AutoCast {
     ): List<VideoCandidate> {
         val usable = candidates.filter { !VideoUrls.isPlaceholder(it.url) && !it.directOnly }
         if (usable.isEmpty()) return emptyList()
-        val video = usable.filter { !it.isAudio }
+        // v0.9.3.3 (страховка к фильтру в addCandidate): DASH-аудио
+        // по efg — не видео-пул, даже если просочилось мимо фильтра
+        // (прямая ссылка и т.п.). Явный аудио-пул это не трогает.
+        val video = usable.filter { !it.isAudio && !VideoUrls.isAudioOnlyEfg(it.url) }
         val audio = usable.filter { it.isAudio }
         val base = if (video.isNotEmpty()) video else audio
         val masters = base.filter { it.format.startsWith("m3u8") && it.isMaster }

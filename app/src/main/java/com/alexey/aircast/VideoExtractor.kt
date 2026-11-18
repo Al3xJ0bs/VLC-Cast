@@ -177,6 +177,77 @@ object VideoUrls {
         return (m.groupValues[1].ifEmpty { m.groupValues[2] }).toIntOrNull()
     }
 
+    // v0.9.3.3 (Instagram: кастится только звук): og:video-ссылки
+    // Instagram — это DASH-активы, и среди них есть ЧИСТО АУДИО
+    // (vencode_tag ..._audio, плюс bytestart/byteend — диапазоны
+    // байт сегмента). Проба зеркал предпочла аудио-файл по
+    // латентности, и VLC получил аудио-сегмент. efg — base64(JSON)
+    // в query, поле vencode_tag описывает актив. Живой кейс
+    // 2026-11-18 (лог 07:51:04): m78
+    // ...dash_ln_heaac_vbr3_audio (+bytestart/byteend) — аудио,
+    // m86 xpv_progressive...720.dash_baseline_1_v1 — настоящее видео.
+    private val EFG_RE = Regex("[?&]efg=([^&#]*)")
+    private val VENCODE_TAG_RE = Regex(""""vencode_tag"\s*:\s*"([^"]*)"""")
+
+    /** Percent-decode без превращения '+' в пробел (base64!). */
+    private fun percentDecode(s: String): String {
+        if ('%' !in s) return s
+        val out = StringBuilder()
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '%' && i + 2 < s.length) {
+                val hex = s.substring(i + 1, i + 3).toIntOrNull(16)
+                if (hex != null) {
+                    out.append(hex.toChar())
+                    i += 3
+                    continue
+                }
+            }
+            out.append(c)
+            i++
+        }
+        return out.toString()
+    }
+
+    /** Декодированный vencode_tag из efg-параметра URL, или null. */
+    fun decodeEfgTag(url: String): String? {
+        val m = EFG_RE.find(url) ?: return null
+        val raw = percentDecode(m.groupValues[1])
+        // base64 может быть URL-safe (-/_) и без padding.
+        val norm = raw.replace('-', '+').replace('_', '/')
+        val padded = norm + "=".repeat((4 - norm.length % 4) % 4)
+        val bytes = try {
+            java.util.Base64.getDecoder().decode(padded)
+        } catch (e: Exception) {
+            return null
+        }
+        val json = try {
+            String(bytes, Charsets.UTF_8)
+        } catch (e: Exception) {
+            return null
+        }
+        return VENCODE_TAG_RE.find(json)?.groupValues?.get(1)
+    }
+
+    /**
+     * Только-аудио DASH-актив по efg: в vencode_tag есть "audio",
+     * а видео-маркеров (progressive/baseline) нет. Такой URL — не
+     * видео-кандидат вообще (не понижать — исключать). Без efg —
+     * false (неизвестно — не трогаем).
+     */
+    fun isAudioOnlyEfg(url: String): Boolean {
+        val tag = decodeEfgTag(url) ?: return false
+        val t = tag.toLowerCase()
+        return t.contains("audio") && !t.contains("progressive") && !t.contains("baseline")
+    }
+
+    /** URL — диапазон байт DASH-сегмента (bytestart/byteend), а не
+     *  полный файл: понижается при выборе, если есть полная
+     *  альтернатива. */
+    fun hasByteRange(url: String): Boolean =
+        url.contains("bytestart=") || url.contains("byteend=")
+
     fun isKodik(url: String): Boolean {
         val u = url.toLowerCase()
         return u.contains("kodik") || u.contains("kodik.") || u.contains("/serial/") && u.contains("kodik")

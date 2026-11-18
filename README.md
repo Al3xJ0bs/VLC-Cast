@@ -1,4 +1,4 @@
-# VLC Cast v0.9.3.2 — хотфикс краша шаринга из Telegram + Instagram через прокси + чистка главного экрана
+# VLC Cast v0.9.3.3 — Instagram: только звук + Telegram: «Не удалось открыть файл»
 
 Android-приложение для Алексея: каст видео из браузера (YummyAnime и др.)
 на Apple TV через VLC. **Шаринг в фоне, приложение не открывается:**
@@ -14,12 +14,18 @@ Chrome → Поделиться → VLC Cast → всё происходит в 
 в разделе «Прямой каст (v0.2.0–v0.3.5)» ниже и в
 `research/direct-cast-research-2026-11-10.md`.
 
-- Пакет: `com.alexey.aircast`, версия `0.9.3.2` (versionCode 35)
+- Пакет: `com.alexey.aircast`, версия `0.9.3.3` (versionCode 36)
 - minSdk 26, targetSdk 34 (платформы 35/36 на этой ВМ нет — см. ниже)
 - Язык интерфейса: русский. Тёмная тема, оранжевый акцент, крупные кнопки.
 - Лицензия: AGPL-3.0 (см. `NOTICE.md` — код HAP/SRP адаптирован из
   CenturyPlay, AGPL-3.0; pyatv — MIT; FairPlay SAP и протокол зеркала —
   из doubletake, LGPL-3.0 — оба удалены в v0.6.0 вместе с зеркалом).
+
+## v0.9.3.3 — Instagram: только звук + Telegram: «Не удалось открыть файл» (2026-11-18)
+
+1. **Instagram кастится, но ТОЛЬКО ЗВУК (приоритет №1).** Диагностика по логу Алексея (07:51:04): рилс дал два mp4 — m78 с `efg` vencode_tag `ig-xpvds.clips.igwww-C3.dash_ln_heaac_vbr3_audio` (+`bytestart`/`byteend` — диапазоны байт DASH-сегмента) и m86 `xpv_progressive.INSTAGRAM.CLIPS.C3.720.dash_baseline_1_v1` (настоящее 720p видео). Проба зеркал предпочла аудио по латентности (15 мс vs 54 мс), VLC получил аудио-сегмент. Фикс: `VideoUrls.decodeEfgTag` (base64 JSON из `efg`, URL-safe + без padding) + `isAudioOnlyEfg` — кандидат с аудио-тегом исключается из видео-кандидатов вообще (в `addCandidate` и страховкой в `AutoCast.orderedAttempts`); URL с `bytestart`/`byteend` понижаются в `score()` (-3, ниже полных файлов); декодированный `vencode_tag` пишется в лог для Instagram-кандидатов.
+2. **Telegram: «Не удалось открыть файл» (приоритет №2).** Краша уже нет, но копия в сервисе падает `FileNotFoundException: ENOENT` (провайдер отвечает, имя читается, файла нет) — grant на чтение до сервиса не доходит. Фикс: копия — в самой `ShareReceiverActivity`, тема сменена с `Theme.NoDisplay` на `Theme.Translucent.NoTitleBar` (полупрозрачный экран с прогрессом «Копирую файл…», activity живёт до конца копии, затем старт сервиса с готовым путём + `finish()`; при ошибке — fallback на сервис FILE_COPY с честной ошибкой и «Поделиться логом»). Диагностика в лог: scheme/authority/`getType` URI, какой open упал и с каким классом; ошибка пользователю — с классом исключения. Сервисная копия остаётся как fallback.
+3. **Вторичное: параллельные запуски сериализованы.** Лог 07:51:04: 5 запусков m78 в одну секунду (`launchCandidate` → `ensureTvReady` → повторный `launchCandidate`) гонялись друг с другом → `EOFException`/`Connection reset`. Теперь один Companion-коннект за раз: флаг `launchInFlight` в `launchAttempt`/`launchVlc` (снимается в начале ui-блока исхода, сброс в `resetFlow`).
 
 ## v0.9.3.2 — хотфикс краша шаринга из Telegram + Instagram через прокси + чистка главного экрана (2026-11-18)
 

@@ -457,6 +457,10 @@ class CastService : Service() {
      * после каста + stale-cleanup сервиса.
      */
     private fun copySharedFile(uri: android.net.Uri): String? {
+        // v0.9.3.3: диагностика grant'а — в лог: scheme/authority,
+        // getType и какой именно open упадёт и с каким классом.
+        val mime = runCatching { contentResolver.getType(uri) }.getOrNull()
+        Log.add("file", "копия в сервисе: scheme=${uri.scheme} authority=${uri.authority} getType=$mime")
         return try {
             val dir = File(cacheDir, TempFiles.TEMP_DIR_NAME).apply { mkdirs() }
             val tmp = File(dir, TempFiles.tempName())
@@ -469,7 +473,7 @@ class CastService : Service() {
             Log.add("file", "скопирован в сервисе: ${tmp.name}, $bytes Б → ${tmp.absolutePath}")
             tmp.absolutePath
         } catch (e: Exception) {
-            Log.add("file", "копия в сервисе error: ${e.javaClass.simpleName}: ${e.message}")
+            Log.add("file", "копия в сервисе error (openInputStream): ${e.javaClass.simpleName}: ${e.message}")
             null
         }
     }
