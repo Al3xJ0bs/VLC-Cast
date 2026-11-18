@@ -2,7 +2,7 @@
 # End-to-end test of the Companion client against a mock Apple TV
 # (Python). The mock speaks server-side Companion (OPACK, pre-shared
 # keys); it proves protocol framing, NOT that a real tvOS 27.2 TV
-# accepts the flow — that needs Alexey's live run.
+# accepts the flow — that needs a live run on a real TV.
 #
 # v0.6.0: mirror mocks 7010/7011/7012 removed with the mirror
 # (FairPlay SAP, RTSP, ACD1 dump verifier, Annex-B negative control —

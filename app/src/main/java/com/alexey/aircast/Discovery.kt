@@ -11,8 +11,8 @@ import android.net.wifi.WifiManager
  * the TV's IP and the app probes /server-info directly.
  *
  * v0.3.2: держим WifiManager.MulticastLock на время поиска — без него
- * NsdManager на realme/OPPO (агрессивное энергосбережение Wi-Fi)
- * периодически не видит вообще ничего: живые логи — ТВ находился за
+ * NsdManager на некоторых Android-устройствах (агрессивное энергосбережение Wi-Fi)
+ * периодически не видит вообще ничего: в живых тестах ТВ находился за
  * ~1 с, а потом три окна по 15 с пустые без единой ошибки.
  * Разрешение CHANGE_WIFI_MULTICAST_STATE уже в манифесте.
  */

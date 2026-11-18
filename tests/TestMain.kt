@@ -71,15 +71,15 @@ fun main() {
     check("filter-video-only", onlyVideo.size == 2 && onlyVideo.all { VideoUrls.isVideoUrl(it) }, onlyVideo.toString())
 
     // --- Remembered/manual TV (v0.2.2): ручной ТВ хранит model/features ---
-    val rem = RememberedDevice("192.168.0.57", "Apple TV 4k", 0x3c177fde4a7fdfd5L, "AppleTV14,1", "AA:BB:CC:DD:EE:FF")
+    val rem = RememberedDevice("192.168.1.10", "Apple TV 4k", 0x3c177fde4a7fdfd5L, "Apple TV 4K", "AA:BB:CC:DD:EE:FF")
     check("remembered-known", rem.known)
-    val remDev = rememberedManualDevice("192.168.0.57", rem)
-    check("remembered-manual-same-ip", remDev.features == 0x3c177fde4a7fdfd5L && remDev.model == "AppleTV14,1" && remDev.name == "Apple TV 4k" && remDev.supportsV1 && remDev.supportsV2, remDev.toString())
-    check("remembered-manual-other-ip", rememberedManualDevice("192.168.0.99", rem).let { it.features == 0L && it.model == "?" && it.name == "Apple TV (вручную)" })
-    check("remembered-manual-none", rememberedManualDevice("192.168.0.57", null).let { it.features == 0L && it.model == "?" })
-    check("remembered-manual-zero", rememberedManualDevice("192.168.0.57", RememberedDevice("192.168.0.57", "Apple TV (вручную)", 0L, "?", "192.168.0.57")).features == 0L)
-    check("remembered-from", RememberedDevice.from(AirPlayDevice("Apple TV 4k", "192.168.0.57", 7000, emptyMap(), 0x3c177fde4a7fdfd5L, "AppleTV14,1", "AA:BB:CC:DD:EE:FF")).known)
-    check("remembered-from-zero", !RememberedDevice.from(AirPlayDevice("Apple TV (вручную)", "192.168.0.57", 7000, emptyMap(), 0L, "?", "192.168.0.57")).known)
+    val remDev = rememberedManualDevice("192.168.1.10", rem)
+    check("remembered-manual-same-ip", remDev.features == 0x3c177fde4a7fdfd5L && remDev.model == "Apple TV 4K" && remDev.name == "Apple TV 4k" && remDev.supportsV1 && remDev.supportsV2, remDev.toString())
+    check("remembered-manual-other-ip", rememberedManualDevice("192.168.1.99", rem).let { it.features == 0L && it.model == "?" && it.name == "Apple TV (вручную)" })
+    check("remembered-manual-none", rememberedManualDevice("192.168.1.10", null).let { it.features == 0L && it.model == "?" })
+    check("remembered-manual-zero", rememberedManualDevice("192.168.1.10", RememberedDevice("192.168.1.10", "Apple TV (вручную)", 0L, "?", "192.168.1.10")).features == 0L)
+    check("remembered-from", RememberedDevice.from(AirPlayDevice("Apple TV 4k", "192.168.1.10", 7000, emptyMap(), 0x3c177fde4a7fdfd5L, "Apple TV 4K", "AA:BB:CC:DD:EE:FF")).known)
+    check("remembered-from-zero", !RememberedDevice.from(AirPlayDevice("Apple TV (вручную)", "192.168.1.10", 7000, emptyMap(), 0L, "?", "192.168.1.10")).known)
 
     // --- Версия в шапке = версия сборки (v0.3.3) ---
     // v0.3.1: шапка показывала 0.3.0-command при коде 0.3.1 — VERSION
@@ -493,20 +493,20 @@ fun main() {
         !StreamProxy.needsProxy("https://p14.solodcdn.com/s/m/abc/720.mp4:hls:manifest.m3u8", "https://old.yummyani.me/catalog/item/x") &&
         !StreamProxy.needsProxy("https://stream.voidboost.cc/abc/720.mp4:hls:manifest.m3u8", "https://rezka.ag/film/1"))
     check("proxy-url-build",
-        StreamProxy.proxyStreamUrl("192.168.0.98", 54321, "https://dv97.sibnet.ru/v/abc/1.mp4?st=x&e=1", "https://video.sibnet.ru/shell.php?videoid=1") ==
-            "http://192.168.0.98:54321/stream?u=https%3A%2F%2Fdv97.sibnet.ru%2Fv%2Fabc%2F1.mp4%3Fst%3Dx%26e%3D1&r=https%3A%2F%2Fvideo.sibnet.ru%2Fshell.php%3Fvideoid%3D1")
-    val proxyForTest: (String) -> String = { abs -> "http://192.168.0.98:54321/stream?u=" + java.net.URLEncoder.encode(abs, "UTF-8") + "&r=R" }
+        StreamProxy.proxyStreamUrl("192.168.1.20", 54321, "https://dv97.sibnet.ru/v/abc/1.mp4?st=x&e=1", "https://video.sibnet.ru/shell.php?videoid=1") ==
+            "http://192.168.1.20:54321/stream?u=https%3A%2F%2Fdv97.sibnet.ru%2Fv%2Fabc%2F1.mp4%3Fst%3Dx%26e%3D1&r=https%3A%2F%2Fvideo.sibnet.ru%2Fshell.php%3Fvideoid%3D1")
+    val proxyForTest: (String) -> String = { abs -> "http://192.168.1.20:54321/stream?u=" + java.net.URLEncoder.encode(abs, "UTF-8") + "&r=R" }
     val playlistIn = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a1\",URI=\"audio/index.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=2000000,AUDIO=\"a1\"\n720p/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=800000,AUDIO=\"a1\"\n480p/index.m3u8\n"
     val playlistOut = StreamProxy.rewritePlaylist(playlistIn, "https://cdn.example.test/hls/master.m3u8", proxyForTest)
     check("proxy-rewrite-segments",
         playlistOut.contains("u=https%3A%2F%2Fcdn.example.test%2Fhls%2F720p%2Findex.m3u8") &&
         playlistOut.contains("u=https%3A%2F%2Fcdn.example.test%2Fhls%2F480p%2Findex.m3u8") &&
-        playlistOut.contains("URI=\"http://192.168.0.98:54321/stream?u=https%3A%2F%2Fcdn.example.test%2Fhls%2Faudio%2Findex.m3u8"),
+        playlistOut.contains("URI=\"http://192.168.1.20:54321/stream?u=https%3A%2F%2Fcdn.example.test%2Fhls%2Faudio%2Findex.m3u8"),
         playlistOut)
     val playlistKey = "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"\nseg0.ts\nhttps://cdn.example.test/abs/seg1.ts\n"
     val playlistKeyOut = StreamProxy.rewritePlaylist(playlistKey, "https://cdn.example.test/hls/index.m3u8", proxyForTest)
     check("proxy-rewrite-key",
-        playlistKeyOut.contains("URI=\"http://192.168.0.98:54321/stream?u=https%3A%2F%2Fcdn.example.test%2Fhls%2Fkey.bin") &&
+        playlistKeyOut.contains("URI=\"http://192.168.1.20:54321/stream?u=https%3A%2F%2Fcdn.example.test%2Fhls%2Fkey.bin") &&
         playlistKeyOut.contains("u=https%3A%2F%2Fcdn.example.test%2Fhls%2Fseg0.ts") &&
         playlistKeyOut.contains("u=https%3A%2F%2Fcdn.example.test%2Fabs%2Fseg1.ts"),
         playlistKeyOut)
@@ -728,7 +728,7 @@ fun main() {
     val subsMaster = Subtitles.buildSubsMaster(
         "https://cdn.example.test/v/master.m3u8",
         listOf(SubTrack("https://cdn.example.test/subs/ru.srt", "ru", "Русские"), SubTrack("https://cdn.example.test/subs/en.vtt", "en", "English")),
-        proxyTrack = { t -> "http://192.168.0.98:8080/stream?u=" + t.url }
+        proxyTrack = { t -> "http://192.168.1.20:8080/stream?u=" + t.url }
     )
     check("subs-master", subsMaster.contains("#EXT-X-MEDIA:TYPE=SUBTITLES") && subsMaster.contains("LANGUAGE=\"ru\"") && subsMaster.contains("NAME=\"Русские\"") && subsMaster.contains("NAME=\"English\"") && subsMaster.contains("SUBTITLES=\"subs\"") && subsMaster.contains("https://cdn.example.test/v/master.m3u8"), subsMaster)
     // EpisodeList: якорь «Следующая серия», шаблон с номером, нет списка, последняя серия, ?ep=.
@@ -801,11 +801,11 @@ fun main() {
     check("vlc-link-no-sub", deepNoSub == "vlc-x-callback://x-callback-url/stream?url=https%3A%2F%2Fcdn.example.test%2Fv%2F720.mp4", deepNoSub)
     val deepSub = CompanionClient.vlcDeepLink(
         "https://cdn.example.test/v/720.mp4",
-        "http://192.168.0.98:8080/stream.vtt?u=https%3A%2F%2Fcdn.example.test%2Fsubs%2Fru.srt&r="
+        "http://192.168.1.20:8080/stream.vtt?u=https%3A%2F%2Fcdn.example.test%2Fsubs%2Fru.srt&r="
     )
     check("vlc-link-sub", deepSub.startsWith(deepNoSub + "&sub=") && deepSub.contains("stream.vtt"), deepSub)
-    val subProxy = StreamProxy.proxySubtitleUrl("192.168.0.98", 8080, "https://cdn.example.test/subs/ru.srt", "https://serial.example.test/show/5")
-    check("proxy-subtitle-url", subProxy.startsWith("http://192.168.0.98:8080/stream.vtt?u=") && subProxy.contains("ru.srt"), subProxy)
+    val subProxy = StreamProxy.proxySubtitleUrl("192.168.1.20", 8080, "https://cdn.example.test/subs/ru.srt", "https://serial.example.test/show/5")
+    check("proxy-subtitle-url", subProxy.startsWith("http://192.168.1.20:8080/stream.vtt?u=") && subProxy.contains("ru.srt"), subProxy)
     check("engine-sub-v090",
         engineSrc.contains("proxySubtitleUrl") && engineSrc.contains("connectAndLaunchVlc(launchUrl, subUrl)") &&
         engineSrc.contains("sub= (дорожка"),
@@ -951,7 +951,7 @@ fun main() {
     val subsMasterPref = Subtitles.buildSubsMaster(
         "https://cdn.example.test/v/master.m3u8",
         listOf(SubTrack("https://cdn.example.test/subs/ru.srt", "ru", "Русские"), SubTrack("https://cdn.example.test/subs/en.vtt", "en", "English")),
-        { t -> "http://192.168.0.98:8080/stream?u=" + t.url },
+        { t -> "http://192.168.1.20:8080/stream?u=" + t.url },
         "ru"
     )
     check("subs-master-pref-lang", subsMasterPref.contains("LANGUAGE=\"ru\",DEFAULT=YES") && !subsMasterPref.contains("LANGUAGE=\"en\",DEFAULT=YES"), subsMasterPref)
@@ -1041,11 +1041,11 @@ fun main() {
     }
     check("tvcheck-closed", !TvCheck.probe("127.0.0.1", tvServer.localPort, 500) && !TvCheck.probe("127.0.0.1", 1, 500))
     // Прокси v0.9.1: URL /resume, /file, /memory-vtt; маршруты и Range в исходнике.
-    check("proxy-resume-url", StreamProxy.proxyResumeUrl("192.168.0.98", 8080, "https://cdn.example.test/v/master.m3u8", "https://serial.example.test/show/5", 900).startsWith("http://192.168.0.98:8080/resume?u=") &&
-        StreamProxy.proxyResumeUrl("192.168.0.98", 8080, "https://cdn.example.test/v/master.m3u8", "https://serial.example.test/show/5", 900).contains("pos=900"))
-    check("proxy-file-url", StreamProxy.proxyFileUrl("192.168.0.98", 8080, "file-123", "mp4") == "http://192.168.0.98:8080/file.mp4?id=file-123")
-    check("proxy-memory-vtt-url", StreamProxy.proxyMemoryVttUrl("192.168.0.98", 8080, "os-9001") == "http://192.168.0.98:8080/memory-vtt?id=os-9001")
-    check("proxy-subs-master-pref", StreamProxy.proxySubsMasterUrl("192.168.0.98", 8080, "https://cdn.example.test/v/master.m3u8", "https://serial.example.test/show/5", listOf(SubTrack("u", "ru", "Русские")), "ru").contains("&d=ru"))
+    check("proxy-resume-url", StreamProxy.proxyResumeUrl("192.168.1.20", 8080, "https://cdn.example.test/v/master.m3u8", "https://serial.example.test/show/5", 900).startsWith("http://192.168.1.20:8080/resume?u=") &&
+        StreamProxy.proxyResumeUrl("192.168.1.20", 8080, "https://cdn.example.test/v/master.m3u8", "https://serial.example.test/show/5", 900).contains("pos=900"))
+    check("proxy-file-url", StreamProxy.proxyFileUrl("192.168.1.20", 8080, "file-123", "mp4") == "http://192.168.1.20:8080/file.mp4?id=file-123")
+    check("proxy-memory-vtt-url", StreamProxy.proxyMemoryVttUrl("192.168.1.20", 8080, "os-9001") == "http://192.168.1.20:8080/memory-vtt?id=os-9001")
+    check("proxy-subs-master-pref", StreamProxy.proxySubsMasterUrl("192.168.1.20", 8080, "https://cdn.example.test/v/master.m3u8", "https://serial.example.test/show/5", listOf(SubTrack("u", "ru", "Русские")), "ru").contains("&d=ru"))
     check("proxy-v091-routes",
         proxySrc.contains("/resume?") && proxySrc.contains("/memory-vtt?") && proxySrc.contains("target.startsWith(\"/file\")") &&
         proxySrc.contains("RangeServe.parseRange") && proxySrc.contains("class FdFileSource") &&
@@ -1718,26 +1718,26 @@ fun wolTests0934() {
         WakeOnLan.maskMac("мусор") == "?",
         WakeOnLan.maskMac("aa:bb:cc:dd:ee:ff"))
     val arp = "IP address       HW type     Flags       HW address            Mask     Device\n" +
-        "192.168.0.57     0x1         0x2         aa:bb:cc:dd:ee:ff     *        wlan0\n" +
-        "192.168.0.98     0x1         0x2         11:22:33:44:55:66     *        wlan0\n" +
-        "192.168.0.1      0x1         0x0         00:00:00:00:00:00     *        wlan0\n"
-    check("wol-arp-parse", WakeOnLan.parseArpTable(arp, "192.168.0.57") == "aa:bb:cc:dd:ee:ff" &&
-        WakeOnLan.parseArpTable(arp, "192.168.0.98") == "11:22:33:44:55:66",
+        "192.168.1.10     0x1         0x2         aa:bb:cc:dd:ee:ff     *        wlan0\n" +
+        "192.168.1.20     0x1         0x2         11:22:33:44:55:66     *        wlan0\n" +
+        "192.168.1.1      0x1         0x0         00:00:00:00:00:00     *        wlan0\n"
+    check("wol-arp-parse", WakeOnLan.parseArpTable(arp, "192.168.1.10") == "aa:bb:cc:dd:ee:ff" &&
+        WakeOnLan.parseArpTable(arp, "192.168.1.20") == "11:22:33:44:55:66",
         "must find the TV MAC by IP")
-    check("wol-arp-missing", WakeOnLan.parseArpTable(arp, "192.168.0.99") == null &&
-        WakeOnLan.parseArpTable(arp, "192.168.0.1") == null,
+    check("wol-arp-missing", WakeOnLan.parseArpTable(arp, "192.168.1.99") == null &&
+        WakeOnLan.parseArpTable(arp, "192.168.1.1") == null,
         "absent IP and incomplete (zero-MAC) entry must be null")
     val arpFile = java.io.File.createTempFile("arp0934", ".txt").apply { writeText(arp); deleteOnExit() }
-    check("wol-arp-read-file", WakeOnLan.readArpMac("192.168.0.57", arpFile.absolutePath) == "aa:bb:cc:dd:ee:ff" &&
-        WakeOnLan.readArpMac("192.168.0.57", "/nonexistent-arp-0934") == null,
+    check("wol-arp-read-file", WakeOnLan.readArpMac("192.168.1.10", arpFile.absolutePath) == "aa:bb:cc:dd:ee:ff" &&
+        WakeOnLan.readArpMac("192.168.1.10", "/nonexistent-arp-0934") == null,
         "readArpMac must read a file path and return null on missing file")
-    check("wol-broadcast", WakeOnLan.broadcastFor("192.168.0.57") == "192.168.0.255" &&
-        WakeOnLan.broadcastFor("192.168.0.57", 16) == "192.168.255.255" &&
-        WakeOnLan.broadcastFor("192.168.0.57", 25) == "192.168.0.127" &&
-        WakeOnLan.broadcastFor("192.168.0.57", 32) == "192.168.0.57",
+    check("wol-broadcast", WakeOnLan.broadcastFor("192.168.1.10") == "192.168.1.255" &&
+        WakeOnLan.broadcastFor("192.168.1.10", 16) == "192.168.255.255" &&
+        WakeOnLan.broadcastFor("192.168.1.10", 25) == "192.168.1.127" &&
+        WakeOnLan.broadcastFor("192.168.1.10", 32) == "192.168.1.10",
         "broadcast must follow the prefix")
     check("wol-broadcast-bad", WakeOnLan.broadcastFor("мусор") == "255.255.255.255" &&
-        WakeOnLan.broadcastFor("192.168.0.999") == "255.255.255.255",
+        WakeOnLan.broadcastFor("192.168.1.999") == "255.255.255.255",
         "invalid IP must fall back to limited broadcast")
     // Песочница блокирует ЛЮБОЙ UDP-send (даже unicast на loopback:
     // IOException: Operation not permitted — проверено отдельным

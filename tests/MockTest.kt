@@ -19,7 +19,7 @@ import java.io.File
  *
  * The mock does NOT implement an SRP server — both sides use PRE-SHARED
  * keys (same constants as mock_companion.py); pairing against the real
- * TV is verified only by Alexey's live run.
+ * TV is verified only by a live run on a real TV.
  *
  * Run: tests/run_mock_test.sh
  */

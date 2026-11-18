@@ -116,7 +116,7 @@ class CastEngine(
          * десктопным UA).
          */
         const val MOBILE_UA =
-            "Mozilla/5.0 (Linux; Android 16; RMX5011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
         /**
          * Авто-нажатие ▶ в плеере: после авто-открытия страницы плеера
          * пробуем запустить видео сами (Kodik отдаёт manifest только
@@ -1093,7 +1093,7 @@ class CastEngine(
                 val c = java.net.URL(feedUrl).openConnection() as java.net.HttpURLConnection
                 c.connectTimeout = 10_000
                 c.readTimeout = 10_000
-                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 16; RMX5011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36")
+                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36")
                 c.setRequestProperty("Accept", "application/json")
                 if (c.responseCode !in 200..299) {
                     Log.add("browser", "JWPlayer feed HTTP ${c.responseCode}: ${VideoUrls.safeHost(feedUrl)}")
@@ -1375,7 +1375,7 @@ class CastEngine(
                 val conn = java.net.URL(c.url).openConnection() as java.net.HttpURLConnection
                 conn.connectTimeout = 5_000
                 conn.readTimeout = 5_000
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 16; RMX5011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36")
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36")
                 val ref = c.referer
                 if (!ref.isNullOrBlank()) conn.setRequestProperty("Referer", ref)
                 val cookies = pageCookies(c.url)
@@ -2167,7 +2167,7 @@ class CastEngine(
                 val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
                 c.connectTimeout = 10_000
                 c.readTimeout = 10_000
-                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 16; RMX5011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36")
+                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36")
                 if (c.responseCode !in 200..299) return@thread
                 val out = java.io.ByteArrayOutputStream()
                 val buf = ByteArray(8192)

@@ -1,4 +1,4 @@
-Live v0.4.7 mirror dump (sliced fixture, 2026-11-10 14:59:31-15:00:15, Alexey's phone).
+Live v0.4.7 mirror dump (sliced fixture, 2026-11-10 14:59:31-15:00:15, a test phone).
 Records kept, in original order: all SETUP req/resp (3+3), codec frame (1),
 first 3 video frames (IDR #1 44483 B, P #2 1096 B, P #3 628 B).
 Every video payload is Annex-B (starts 00 00 00 01) — the proven cause of the

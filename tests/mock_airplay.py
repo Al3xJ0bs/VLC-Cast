@@ -242,7 +242,7 @@ def mirror_info_dict():
     return {
         "deviceID": "AA:BB:CC:DD:EE:FF",
         "features": MIRROR_FEATURES,
-        "model": "AppleTV14,1",
+        "model": "Apple TV 4K",
         "name": "MockAppleTV",
         "sourceVersion": MIRROR_SOURCE_VERSION,
         "psi": PSI,

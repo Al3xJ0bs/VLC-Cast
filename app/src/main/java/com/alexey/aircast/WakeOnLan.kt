@@ -69,7 +69,7 @@ object WakeOnLan {
 
     /**
      * Парсинг /proc/net/arp: строки вида
-     * "192.168.0.57  0x1  0x2  aa:bb:cc:dd:ee:ff  *  wlan0".
+     * "192.168.1.10  0x1  0x2  aa:bb:cc:dd:ee:ff  *  wlan0".
      * Возвращает MAC для ip или null (нет строки, либо запись
      * неполная: Flags 0x0 / MAC 00:00:00:00:00:00).
      */
@@ -100,7 +100,7 @@ object WakeOnLan {
 
     /**
      * Broadcast-адрес подсети ТВ из его IP и длины префикса
-     * (по умолчанию /24 → 192.168.0.255). Мусор → 255.255.255.255.
+     * (по умолчанию /24 → 192.168.1.255). Мусор → 255.255.255.255.
      */
     fun broadcastFor(ip: String, prefixLen: Int = 24): String {
         val octets = ip.trim().split('.')

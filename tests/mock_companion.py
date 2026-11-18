@@ -14,7 +14,7 @@ Pair-Setup / Pair-Verify are not exercised here. Both sides use PRE-SHARED
 test keys (TEST_CLIENT_OUT_KEY / TEST_CLIENT_IN_KEY below, identical
 constants in tests/MockTest.kt section 16): the client connects with
 CompanionClient.connectTestSession() and sends _launchApp directly. The
-SRP handshake against a real TV is only verified live, by Alexey.
+SRP handshake against a real TV is only verified live, on a real TV.
 The mock answers every OPACK request (_t=2) with
 {"_i": <same>, "_x": <same xid>, "_t": 3, "_c": {}} and records the
 _launchApp dict + deep link in the summary JSON (flushed immediately).

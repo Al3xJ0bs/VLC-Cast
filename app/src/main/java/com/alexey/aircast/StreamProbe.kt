@@ -358,7 +358,7 @@ object StreamProbe {
 
 /** Тот же UA, что у фонового WebView (CastEngine) и прокси. */
 private const val PROXY_CHROME_UA =
-    "Mozilla/5.0 (Linux; Android 16; RMX5011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
 
 /**
  * v0.9.3 (#25 + хотфикс Instagram): десктопный Chrome UA для
