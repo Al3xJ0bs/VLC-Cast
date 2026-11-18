@@ -1788,16 +1788,20 @@ class CastEngine(
 
     /**
      * v0.9.1: проверка ТВ заранее — до 30-секундного таймаута детекта.
-     * Запомненный ТВ: TCP-проба 2 с → если не отвечает и спарен —
-     * пробуждение Companion turn_on → опрос готовности до 30 с.
      * v0.9.2 (регрессия 0.9.1, каст не шёл НИОТКУДА): если probe и
      * wake не сработали — НЕ onTvUnreachable сразу, а fallback на
      * mDNS (fallbackToDiscovery): спящий ТВ после sleep-proxy виден
      * в mDNS, даже если прямой probe 7000 и Companion молчали.
      * onTvUnreachable — только если и mDNS никого не нашёл.
-     * ВАЖНО: wake через Companion работает только при живом
-     * Companion (connect на 49153): спящий ТВ им не разбудить —
-     * он будится коннектом после mDNS (sleep proxy), а не _hidC.
+     * v0.9.3.4 (пробуждение НЕ работает, слово Алексея 2026-11-18
+     * 13:32): порядок шагов — сначала Wake-on-LAN, потом опрос до
+     * 30 с, и только потом Companion turn_on + ещё 10 с. Причина:
+     * спящий ТВ не слушает ни 7000, ни 49153 — turn_on доставить
+     * некому (caveat Bug B с 0.9.2). WoL будит на уровне сети и
+     * спаривания не требует — нужен только MAC (кэш lastDeviceMac,
+     * иначе живая ARP-таблица). MAC неизвестен — честный статус
+     * в уведомлении, но флоу НЕ убивается: turn_on и mDNS fallback
+     * (sleep proxy) всё равно пробуются.
      */
     private fun ensureTvReady(onReady: () -> Unit) {
         val rem = loadRemembered()
@@ -1807,6 +1811,7 @@ class CastEngine(
         }
         thread {
             if (TvCheck.probe(rem.host, 7000, 2000)) {
+                cacheTvMac(rem.host)
                 ui {
                     selectDevice(rememberedManualDevice(rem.host, rem))
                     onReady()
@@ -1814,33 +1819,52 @@ class CastEngine(
                 return@thread
             }
             Log.add("tv", "запомненный ТВ не отвечает — пробую разбудить: ${rem.host}")
+            ui { listener.onStatus("ТВ спит — бужу его…") }
+            // Шаг 1 — Wake-on-LAN (спаринга не требует, нужен MAC).
+            val mac = rem.mac ?: WakeOnLan.readArpMac(rem.host)
+            if (mac != null) {
+                val macBytes = WakeOnLan.parseMac(mac)
+                if (macBytes != null) {
+                    val subnetBc = WakeOnLan.broadcastFor(rem.host)
+                    Log.add("tv", "WoL: magic packet ${WakeOnLan.maskMac(mac)} → $subnetBc и 255.255.255.255:9")
+                    sendWol(macBytes, subnetBc)
+                } else {
+                    Log.add("tv", "WoL: кэшированный MAC не парсится: ${WakeOnLan.maskMac(mac)}")
+                }
+            } else {
+                Log.add("tv", "WoL невозможен: MAC ТВ неизвестен — включите ТВ пультом один раз, дальше пробуждение заработает")
+                ui { listener.onStatus("MAC ТВ неизвестен — включите ТВ пультом один раз") }
+            }
+            // Шаг 2 — ждать появления ТВ до 30 с (существующая логика).
+            if (waitTvReady(rem.host, 30_000L)) {
+                cacheTvMac(rem.host)
+                ui {
+                    selectDevice(rememberedManualDevice(rem.host, rem))
+                    onReady()
+                }
+                return@thread
+            }
+            Log.add("tv", "ТВ не проснулся за 30 с после WoL: ${rem.host}")
+            // Шаг 3 — Companion turn_on как раньше (только если спарен;
+            // при живом Companion может сработать в лёгком сне).
             val paired = credStore.has(CompanionClient.companionIdentity(rem.host))
             if (paired) {
-                ui { listener.onStatus("ТВ спит — бужу его…") }
                 val woken = try {
                     CompanionClient(rem.host, credStore = credStore).wakeTv()
                 } catch (e: Exception) {
                     Log.add("tv", "wake error: ${e.javaClass.simpleName}: ${e.message}")
                     false
                 }
-                Log.add("tv", "wake: $woken — жду готовности до 30 с")
-                val deadline = System.currentTimeMillis() + 30_000L
-                var ok = false
-                while (System.currentTimeMillis() < deadline) {
-                    Thread.sleep(2000)
-                    if (TvCheck.probe(rem.host, 7000, 2000)) {
-                        ok = true
-                        break
-                    }
-                }
-                if (ok) {
+                Log.add("tv", "wake: $woken — жду готовности ещё 10 с")
+                if (waitTvReady(rem.host, 10_000L)) {
+                    cacheTvMac(rem.host)
                     ui {
                         selectDevice(rememberedManualDevice(rem.host, rem))
                         onReady()
                     }
                     return@thread
                 }
-                Log.add("tv", "ТВ не проснулся за 30 с: ${rem.host}")
+                Log.add("tv", "ТВ не проснулся и после turn_on: ${rem.host}")
             } else {
                 Log.add("tv", "ТВ не отвечает и не спарен — будить нечем")
             }
@@ -1848,6 +1872,32 @@ class CastEngine(
             // а не убийство каста (см. шапку функции).
             ui { fallbackToDiscovery(onReady) }
         }
+    }
+
+    /** Опрос готовности ТВ: probe 7000 каждые 2 с до дедлайна. */
+    private fun waitTvReady(host: String, timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            Thread.sleep(2000)
+            if (TvCheck.probe(host, 7000, 2000)) return true
+        }
+        return false
+    }
+
+    /**
+     * v0.9.3.4: magic packet — 3 раунда с паузой ~1 с, каждый раунд
+     * на broadcast подсети ТВ И на 255.255.255.255 (один из двух
+     * обычно доходит). Возвращает число отправленных пакетов.
+     */
+    private fun sendWol(mac: ByteArray, subnetBroadcast: String): Int {
+        var sent = 0
+        repeat(WakeOnLan.DEFAULT_REPEATS) { round ->
+            sent += WakeOnLan.sendMagicPacket(mac, subnetBroadcast, repeats = 1, intervalMs = 0)
+            sent += WakeOnLan.sendMagicPacket(mac, "255.255.255.255", repeats = 1, intervalMs = 0)
+            if (round + 1 < WakeOnLan.DEFAULT_REPEATS) Thread.sleep(WakeOnLan.DEFAULT_INTERVAL_MS)
+        }
+        Log.add("tv", "WoL: отправлено magic packet: $sent из ${WakeOnLan.DEFAULT_REPEATS * 2}")
+        return sent
     }
 
     /**
@@ -2563,6 +2613,22 @@ class CastEngine(
             .putString("lastDeviceId", dev.deviceId)
             .apply()
         Log.add("app", "запомнен ТВ: ${dev.name} model=${dev.model} features=0x${dev.features.toString(16)}")
+        // v0.9.3.4: ТВ жив прямо сейчас — снять его MAC из ARP и
+        // закэшировать для Wake-on-LAN (нужен при следующем сне).
+        cacheTvMac(dev.host)
+    }
+
+    /**
+     * v0.9.3.4: MAC ТВ из ARP-таблицы телефона → кэш в prefs
+     * (lastDeviceMac). Вызывается, когда ТВ доступен (probe ok /
+     * selectDevice из discovery). Тихий no-op, если записи нет.
+     */
+    private fun cacheTvMac(host: String) {
+        val mac = WakeOnLan.readArpMac(host) ?: return
+        val old = prefs.getString("lastDeviceMac", null)
+        if (old == mac) return
+        prefs.edit().putString("lastDeviceMac", mac).apply()
+        Log.add("tv", "MAC ТВ закэширован: ${WakeOnLan.maskMac(mac)}")
     }
 
     private fun loadRemembered(): RememberedDevice? {
@@ -2575,6 +2641,7 @@ class CastEngine(
             features = features,
             model = prefs.getString("lastDeviceModel", null) ?: "?",
             deviceId = prefs.getString("lastDeviceId", null) ?: host,
+            mac = prefs.getString("lastDeviceMac", null),
         )
     }
 

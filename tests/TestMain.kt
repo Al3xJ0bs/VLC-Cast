@@ -39,6 +39,7 @@ import com.alexey.aircast.JavaFileSource
 import com.alexey.aircast.MasterWait
 import com.alexey.aircast.ResumePlaylist
 import com.alexey.aircast.TvCheck
+import com.alexey.aircast.WakeOnLan
 import java.io.File
 
 fun hex(s: String): ByteArray {
@@ -90,13 +91,13 @@ fun main() {
     // JVM-тестах (Android-классы) — читаем исходник как текст.
     val mainActivitySrc = File("app/src/main/java/com/alexey/aircast/MainActivity.kt").readText()
     val shownVersion = Regex("const val VERSION = \"([^\"]+)\"").find(mainActivitySrc)?.groupValues?.get(1)
-    check("version-label", shownVersion == "0.9.3.3", "VERSION=$shownVersion")
+    check("version-label", shownVersion == "0.9.3.4", "VERSION=$shownVersion")
     val buildSh = File("build.sh").readText()
     check("version-build-derives-name", buildSh.contains("const val VERSION") && !Regex("--version-name 0\\.3").containsMatchIn(buildSh),
         "build.sh must derive --version-name from MainActivity.VERSION, not hardcode it")
-    check("version-code-36", buildSh.contains("--version-code 36"), "no --version-code 36 in build.sh")
-    check("version-code-const-36", Regex("const val VERSION_CODE = 36").containsMatchIn(mainActivitySrc),
-        "MainActivity.VERSION_CODE must be 36 (update check compares against it)")
+    check("version-code-37", buildSh.contains("--version-code 37"), "no --version-code 37 in build.sh")
+    check("version-code-const-37", Regex("const val VERSION_CODE = 37").containsMatchIn(mainActivitySrc),
+        "MainActivity.VERSION_CODE must be 37 (update check compares against it)")
     // v0.9.3.1: краш при запуске — двухаргументный registerReceiver
     // на Android 13+ бросает SecurityException. Статическая проверка
     // исходника AppUpdater: флаг NOT_EXPORTED обязан быть, двухаргументной
@@ -1005,6 +1006,9 @@ fun main() {
     // отдельной функции ниже (kotlinc 1.4 падает с "wrong bytecode
     // generated", если этот блок остаётся внутри гигантского main()).
     efgTests0933()
+    // v0.9.3.4 (Wake-on-LAN): WoL-тесты — тоже в отдельной функции
+    // ниже, по той же причине (лимит кодогена на main()).
+    wolTests0934()
     val igHtml = """<html><head><meta property="og:video" content="https://cdn.example.test/v.mp4"><meta content="https://cdn.example.test/v2.mp4" property="og:video:secure_url"><meta name="twitter:player:stream" content="https://cdn.example.test/v3.mp4?x=1&amp;y=2"><script>{"video_url":"https:\/\/cdn.example.test\/v4.mp4"}</script></head></html>"""
     check("meta-video-urls", VideoUrls.extractMetaVideoUrls(igHtml) == listOf(
         "https://cdn.example.test/v.mp4", "https://cdn.example.test/v2.mp4",
@@ -1396,13 +1400,13 @@ fun main() {
     check("ui-093", mainSrc.contains("Сохранить вход (куки)") &&
         mainSrc.contains("Самопроверка") && mainSrc.contains("runSelfCheck") &&
         mainSrc.contains("Что нового в \$VERSION") && mainSrc.contains("last_seen_version"))
-    // v0.9.3.2 (чистка главного экрана): «Поделиться логом» — на
-    // главном экране; самопроверка и обновления — авто при запуске;
-    // кнопок проверки, поля URL, ключа OpenSubtitles и бэкапа
-    // спаривания на главном экране больше нет.
-    check("ui-0932-cleanup", mainSrc.contains("Поделиться логом") &&
-        mainSrc.contains("LogShareActivity") &&
-        mainSrc.contains("autoChecksStarted") && mainSrc.contains("DEFAULT_UPDATE_URL") &&
+    // v0.9.3.2 (чистка главного экрана): самопроверка и обновления —
+    // авто при запуске; кнопок проверки, поля URL, ключа OpenSubtitles
+    // и бэкапа спаривания на главном экране больше нет.
+    // v0.9.3.4: «Поделиться логом» с главного экрана тоже убрана
+    // (слово Алексея) — её наличие тут больше не проверяется,
+    // см. ui-0934-no-log-button-main ниже.
+    check("ui-0932-cleanup", mainSrc.contains("autoChecksStarted") && mainSrc.contains("DEFAULT_UPDATE_URL") &&
         !mainSrc.contains("button(\"Экспорт спаривания\")") &&
         !mainSrc.contains("button(\"Импорт спаривания\")") &&
         !mainSrc.contains("REQUEST_BACKUP_IMPORT") &&
@@ -1671,4 +1675,109 @@ check("bplist-2byte-int-signed", evDoc["eventPort"] == -16223L, evDoc.toString()
 val negDoc: Map<String, Any?> = mapOf("minus5" to -5, "minus1" to -1, "big" to 49313)
 val negReparsed = Bplist.decode(Bplist.encode(negDoc)) as Map<*, *>
 check("bplist-negative-roundtrip", negReparsed["minus5"] == -5L && negReparsed["minus1"] == -1L && negReparsed["big"] == 49313L, Bplist.describe(negReparsed))
+}
+
+// v0.9.3.4: фейковый UDP-сокет для теста sendMagicPacket —
+// песочница блокирует любой реальный UDP-send, поэтому тест
+// проверяет через него пакет/адрес/порт/повторы.
+class FakeUdpSocket : java.net.DatagramSocket() {
+    val sent = mutableListOf<java.net.DatagramPacket>()
+    var broadcastSet: Boolean? = null
+    override fun setBroadcast(on: Boolean) { broadcastSet = on }
+    override fun send(p: java.net.DatagramPacket) {
+        sent.add(java.net.DatagramPacket(p.data.copyOf(p.length), p.length, p.address, p.port))
+    }
+}
+
+// v0.9.3.4 (Wake-on-LAN: пробуждение спящего Apple TV не работало —
+// был только Companion turn_on, а спящий ТВ не слушает 49153).
+// Отдельная функция: kotlinc 1.4 падает с "wrong bytecode
+// generated" на гигантском main() (см. efgTests0933/cryptoTests).
+fun wolTests0934() {
+    val mac = byteArrayOf(0xAA.toByte(), 0xBB.toByte(), 0xCC.toByte(), 0xDD.toByte(), 0xEE.toByte(), 0xFF.toByte())
+    val packet = WakeOnLan.buildMagicPacket(mac)
+    check("wol-packet-size", packet.size == 102, "size=${packet.size}")
+    check("wol-packet-sync", packet.take(6).all { it == 0xFF.toByte() }, packet.take(6).toString())
+    var repeatsOk = true
+    for (r in 0 until 16) {
+        if (!packet.copyOfRange(6 + r * 6, 6 + r * 6 + 6).contentEquals(mac)) repeatsOk = false
+    }
+    check("wol-packet-repeat", repeatsOk, "MAC must repeat 16x after the 6xFF sync")
+    check("wol-parse-mac", WakeOnLan.parseMac("AA:BB:CC:DD:EE:FF")?.contentEquals(mac) == true &&
+        WakeOnLan.parseMac("aa:bb:cc:dd:ee:ff")?.contentEquals(mac) == true &&
+        WakeOnLan.parseMac("AA-BB-CC-DD-EE-FF")?.contentEquals(mac) == true,
+        "colon/dash, upper/lower must parse")
+    check("wol-parse-mac-bad", WakeOnLan.parseMac(null) == null &&
+        WakeOnLan.parseMac("aa:bb:cc:dd:ee") == null &&
+        WakeOnLan.parseMac("zz:bb:cc:dd:ee:ff") == null &&
+        WakeOnLan.parseMac("aa:bb:cc:dd:ee:ff:00") == null &&
+        WakeOnLan.parseMac("not-a-mac") == null,
+        "short/bad-hex/7-octets/garbage must be null")
+    check("wol-format-mac", WakeOnLan.formatMac(mac) == "aa:bb:cc:dd:ee:ff")
+    check("wol-mask", WakeOnLan.maskMac("aa:bb:cc:dd:ee:ff") == "aa:bb:..:..:ee:ff" &&
+        WakeOnLan.maskMac("мусор") == "?",
+        WakeOnLan.maskMac("aa:bb:cc:dd:ee:ff"))
+    val arp = "IP address       HW type     Flags       HW address            Mask     Device\n" +
+        "192.168.0.57     0x1         0x2         aa:bb:cc:dd:ee:ff     *        wlan0\n" +
+        "192.168.0.98     0x1         0x2         11:22:33:44:55:66     *        wlan0\n" +
+        "192.168.0.1      0x1         0x0         00:00:00:00:00:00     *        wlan0\n"
+    check("wol-arp-parse", WakeOnLan.parseArpTable(arp, "192.168.0.57") == "aa:bb:cc:dd:ee:ff" &&
+        WakeOnLan.parseArpTable(arp, "192.168.0.98") == "11:22:33:44:55:66",
+        "must find the TV MAC by IP")
+    check("wol-arp-missing", WakeOnLan.parseArpTable(arp, "192.168.0.99") == null &&
+        WakeOnLan.parseArpTable(arp, "192.168.0.1") == null,
+        "absent IP and incomplete (zero-MAC) entry must be null")
+    val arpFile = java.io.File.createTempFile("arp0934", ".txt").apply { writeText(arp); deleteOnExit() }
+    check("wol-arp-read-file", WakeOnLan.readArpMac("192.168.0.57", arpFile.absolutePath) == "aa:bb:cc:dd:ee:ff" &&
+        WakeOnLan.readArpMac("192.168.0.57", "/nonexistent-arp-0934") == null,
+        "readArpMac must read a file path and return null on missing file")
+    check("wol-broadcast", WakeOnLan.broadcastFor("192.168.0.57") == "192.168.0.255" &&
+        WakeOnLan.broadcastFor("192.168.0.57", 16) == "192.168.255.255" &&
+        WakeOnLan.broadcastFor("192.168.0.57", 25) == "192.168.0.127" &&
+        WakeOnLan.broadcastFor("192.168.0.57", 32) == "192.168.0.57",
+        "broadcast must follow the prefix")
+    check("wol-broadcast-bad", WakeOnLan.broadcastFor("мусор") == "255.255.255.255" &&
+        WakeOnLan.broadcastFor("192.168.0.999") == "255.255.255.255",
+        "invalid IP must fall back to limited broadcast")
+    // Песочница блокирует ЛЮБОЙ UDP-send (даже unicast на loopback:
+    // IOException: Operation not permitted — проверено отдельным
+    // Java-репродуктором). Поэтому реальный сокет здесь не проверить:
+    // sendMagicPacket принимает фабрику сокетов (test seam), а тест
+    // гоняет фейковый сокет и проверяет пакет/адрес/порт/повторы/
+    // паузы; плюс реальный сокет в песочнице обязан вернуть 0,
+    // а не бросить исключение.
+    val fake = FakeUdpSocket()
+    var sleeps = 0
+    val sent3 = WakeOnLan.sendMagicPacket(mac, "127.0.0.1", port = 9, repeats = 3, intervalMs = 100,
+        sleep = { sleeps++ }, createSocket = { fake })
+    check("wol-send-fake", sent3 == 3 && fake.sent.size == 3 &&
+        fake.broadcastSet == true && sleeps == 2 &&
+        fake.sent.all { it.data.contentEquals(packet) && it.address.hostAddress == "127.0.0.1" && it.port == 9 },
+        "sent=$sent3 sleeps=$sleeps broadcast=${fake.broadcastSet}")
+    check("wol-send-blocked-returns-0",
+        WakeOnLan.sendMagicPacket(mac, "127.0.0.1", port = 9, repeats = 1, intervalMs = 0) == 0,
+        "blocked UDP send must return 0, not throw")
+    // Статика: порядок пробуждения в ensureTvReady — WoL ДО turn_on,
+    // MAC кэшируется в saveRemembered и читается в loadRemembered.
+    val engineSrc = File("app/src/main/java/com/alexey/aircast/CastEngine.kt").readText()
+    val readyFn = engineSrc.substringAfter("private fun ensureTvReady").substringBefore("private fun fallbackToDiscovery")
+    check("wol-order-0934", readyFn.contains("sendWol(") && readyFn.contains(".wakeTv()") &&
+        readyFn.indexOf("sendWol(") < readyFn.indexOf(".wakeTv()") &&
+        readyFn.contains("waitTvReady(rem.host, 30_000L)"),
+        "ensureTvReady must send WoL first, wait 30s, only then turn_on")
+    check("wol-mac-cached", engineSrc.contains("putString(\"lastDeviceMac\"") &&
+        engineSrc.contains("getString(\"lastDeviceMac\"") &&
+        engineSrc.contains("fun cacheTvMac("),
+        "MAC must be cached in saveRemembered and read in loadRemembered")
+    // Статика: кнопка «Поделиться логом» убрана с главного экрана
+    // (слово Алексея 13:34) — в MainActivity она осталась только на
+    // экране краша; в уведомлении «Видео не найдено» — как раньше.
+    val mainSrc = File("app/src/main/java/com/alexey/aircast/MainActivity.kt").readText()
+    val logButtons = Regex("button\\(\"Поделиться логом\"\\)").findAll(mainSrc).toList()
+    check("ui-0934-no-log-button-main", logButtons.size == 1 &&
+        mainSrc.indexOf("private fun buildCrashScreen") < logButtons[0].range.first,
+        "main screen must have no share-log button; only the crash screen keeps one")
+    val serviceSrc = File("app/src/main/java/com/alexey/aircast/CastService.kt").readText()
+    check("ui-0934-log-button-notif", serviceSrc.contains("shareLog = true"),
+        "the «Видео не найдено» notification must still offer share-log")
 }

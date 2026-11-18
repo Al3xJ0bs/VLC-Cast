@@ -99,7 +99,10 @@ data class HapCredentials(
  * entered TV keeps the model/features from the last successful mDNS
  * discovery instead of showing features=0x0, V1=false V2=false).
  * Stored in SharedPreferences "aircast" as lastDeviceHost / lastDeviceName /
- * lastDeviceFeatures (hex) / lastDeviceModel / lastDeviceId. Pure Kotlin.
+ * lastDeviceFeatures (hex) / lastDeviceModel / lastDeviceId.
+ * v0.9.3.4: + lastDeviceMac — MAC из ARP-таблицы в момент, когда ТВ
+ * доступен (кэш для Wake-on-LAN; null — ТВ ни разу не был жив при
+ * нас, пробуждение без MAC невозможно). Pure Kotlin.
  */
 data class RememberedDevice(
     val host: String,
@@ -107,6 +110,7 @@ data class RememberedDevice(
     val features: Long,
     val model: String,
     val deviceId: String,
+    val mac: String? = null,
 ) {
     /** True when the remembered facts are usable (a real discovery was seen). */
     val known: Boolean get() = features != 0L

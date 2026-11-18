@@ -27,9 +27,12 @@ KOTLINC=$HOME/tools/kotlinc/bin/kotlinc
 # Never trust a stale test.jar: a kotlinc failure must fail this script,
 # not leave yesterday's jar to run green.
 rm -f tests/test.jar
+# v0.9.3.4: -J-Xmx3g — ОБЯЗАТЕЛЬНО: кодоген kotlinc 1.4 падает с
+# OutOfMemoryError: Java heap space на полном наборе исходников +
+# гигантском TestMain (дефолтная куча ~2 ГБ, на грани с 0.9.3.3).
 # android.jar is compile-only (kept for parity with the app build).
 AJAR=$HOME/android-sdk/platforms/android-34/android.jar
-$KOTLINC -cp "$AJAR" -d tests/test.jar \
+$KOTLINC -J-Xmx3g -cp "$AJAR" -d tests/test.jar \
   app/src/main/java/com/alexey/aircast/Util.kt \
   app/src/main/java/com/alexey/aircast/Srp6a.kt \
   app/src/main/java/com/alexey/aircast/Crypto.kt \
@@ -61,6 +64,7 @@ $KOTLINC -cp "$AJAR" -d tests/test.jar \
   app/src/main/java/com/alexey/aircast/MasterWait.kt \
   app/src/main/java/com/alexey/aircast/ResumePlaylist.kt \
   app/src/main/java/com/alexey/aircast/TvCheck.kt \
+  app/src/main/java/com/alexey/aircast/WakeOnLan.kt \
   app/src/main/java/com/alexey/aircast/LogShareActivity.kt \
   app/src/main/java/com/alexey/aircast/LogFileProvider.kt \
   app/src/main/java/com/alexey/aircast/AutoCast.kt \

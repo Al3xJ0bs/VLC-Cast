@@ -53,9 +53,9 @@ import android.widget.Toast
  */
 class MainActivity : Activity() {
     companion object {
-        const val VERSION = "0.9.3.3"
+        const val VERSION = "0.9.3.4"
         /** v0.9.1: versionCode — для проверки обновлений (сравнивается с latest.json). */
-        const val VERSION_CODE = 36
+        const val VERSION_CODE = 37
         const val EXTRA_SAFE_MODE = "aircast_safe_mode"
         private const val REQ_POST_NOTIFICATIONS = 1001
     }
@@ -229,14 +229,13 @@ class MainActivity : Activity() {
         root.addView(stepCard("🎵", "Музыка — тоже: поделись ссылкой на трек или аудиофайлом",
             "SoundCloud, YouTube Music, радио, Bandcamp — обложка и название из метаданных."))
         root.addView(textView("При шаринге приложение не открывается: всё происходит в фоне, а на экране появится уведомление.", 14f))
-        // v0.9.3.2 (Instagram: VLC не загружает найденное видео):
-        // «Поделиться логом» — на главном экране: раньше кнопка была
-        // только в уведомлении «Видео не найдено», а при найденном
-        // видео пути поделиться логом не было. Лог нужен с точным
-        // URL, который ушёл во VLC (launchVlc пишет его полностью).
-        root.addView(button("Поделиться логом") {
-            startActivity(Intent(this, LogShareActivity::class.java))
-        })
+        // v0.9.3.4 (слово Алексея 13:34: «какого хрена постоянно
+        // есть кнопка поделится логом»): кнопки «Поделиться логом»
+        // на главном экране БОЛЬШЕ НЕТ — она там висела постоянно
+        // и мешала. Лог по-прежнему доступен из уведомления
+        // «Видео не найдено» (там кнопка остаётся) и с экрана
+        // краша (тоже остаётся — это не главный экран, а редкая
+        // диагностика после вылета).
         // v0.9.3 (#20): «Что нового» — один раз на новую версию.
         if ((prefs.getString("last_seen_version", "") ?: "") != VERSION) {
             root.addView(buildWhatsNewCard())
@@ -266,7 +265,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.parseColor("#1E3A2F"))
         }
         card.addView(textView("Что нового в $VERSION", 17f, bold = true))
-        card.addView(textView("• Исправлен краш при шаринге видеофайла из Telegram (копия файла переехала в сервис, activity сразу закрывается).\n• Instagram: видео теперь идёт через прокси с Referer — VLC должен загружать; на главном экране — кнопка «Поделиться логом» для диагностики.\n• Главный экран почищен: самопроверка и проверка обновлений — автоматически при запуске, без кнопок и лишних полей; бэкап спаривания убран.", 14f))
+        card.addView(textView("• Пробуждение спящего Apple TV починено: теперь сначала Wake-on-LAN (magic packet по MAC из ARP-кэша), потом Companion turn_on — раньше был только turn_on, а спящий ТВ его не слышит.\n• Кнопка «Поделиться логом» убрана с главного экрана — лог по-прежнему доступен из уведомления «Видео не найдено».\n• Instagram: аудио-файлы больше не кастятся вместо видео; Telegram-файл копируется в самом окне шаринга с прогрессом.", 14f))
         card.addView(button("Понятно") {
             prefs.edit().putString("last_seen_version", VERSION).apply()
             renderMode(AutoCast.MainMode.INSTRUCTION)
