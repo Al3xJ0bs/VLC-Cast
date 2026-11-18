@@ -631,6 +631,12 @@ class CastService : Service() {
             endWithAction(msg, AutoCast.MODE_INSTRUCTION) {}
         }
 
+        /** v0.9.3.6: страница не загрузилась — с «Поделиться логом»,
+         *  как в «Видео не найдено» (в логе — строка ошибки загрузки). */
+        override fun onPageLoadFailed(msg: String) {
+            endWithAction(msg, AutoCast.MODE_INSTRUCTION, shareLog = true) {}
+        }
+
         /** v0.9.2: ошибка файла — с «Поделиться логом»,
          *  как в «Видео не найдено» (диагностика без телефона). */
         override fun onFileError(msg: String) {

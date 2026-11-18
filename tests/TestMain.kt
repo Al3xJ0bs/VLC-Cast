@@ -91,13 +91,13 @@ fun main() {
     // JVM-тестах (Android-классы) — читаем исходник как текст.
     val mainActivitySrc = File("app/src/main/java/com/alexey/aircast/MainActivity.kt").readText()
     val shownVersion = Regex("const val VERSION = \"([^\"]+)\"").find(mainActivitySrc)?.groupValues?.get(1)
-    check("version-label", shownVersion == "0.9.3.5", "VERSION=$shownVersion")
+    check("version-label", shownVersion == "0.9.3.6", "VERSION=$shownVersion")
     val buildSh = File("build.sh").readText()
     check("version-build-derives-name", buildSh.contains("const val VERSION") && !Regex("--version-name 0\\.3").containsMatchIn(buildSh),
         "build.sh must derive --version-name from MainActivity.VERSION, not hardcode it")
-    check("version-code-38", buildSh.contains("--version-code 38"), "no --version-code 38 in build.sh")
-    check("version-code-const-38", Regex("const val VERSION_CODE = 38").containsMatchIn(mainActivitySrc),
-        "MainActivity.VERSION_CODE must be 38 (update check compares against it)")
+    check("version-code-39", buildSh.contains("--version-code 39"), "no --version-code 39 in build.sh")
+    check("version-code-const-39", Regex("const val VERSION_CODE = 39").containsMatchIn(mainActivitySrc),
+        "MainActivity.VERSION_CODE must be 39 (update check compares against it)")
     // v0.9.3.1: краш при запуске — двухаргументный registerReceiver
     // на Android 13+ бросает SecurityException. Статическая проверка
     // исходника AppUpdater: флаг обязан быть, двухаргументной
@@ -1016,6 +1016,10 @@ fun main() {
     // v0.9.3.5 (самообновление: скачивает, но установку не начинает):
     // тесты фикса — в отдельной функции ниже, по той же причине.
     updaterTests0935()
+    // v0.9.3.6 (страница не грузится в WebView — onPageFinished не
+    // выстрелил, сканов не было): тесты фикса — в отдельной функции
+    // ниже, по той же причине (лимит кодогена на main()).
+    pageLoadTests0936()
     val igHtml = """<html><head><meta property="og:video" content="https://cdn.example.test/v.mp4"><meta content="https://cdn.example.test/v2.mp4" property="og:video:secure_url"><meta name="twitter:player:stream" content="https://cdn.example.test/v3.mp4?x=1&amp;y=2"><script>{"video_url":"https:\/\/cdn.example.test\/v4.mp4"}</script></head></html>"""
     check("meta-video-urls", VideoUrls.extractMetaVideoUrls(igHtml) == listOf(
         "https://cdn.example.test/v.mp4", "https://cdn.example.test/v2.mp4",
@@ -1850,4 +1854,84 @@ fun updaterTests0935() {
     val runTestsSh = File("tests/run_tests.sh").readText()
     check("updater-tests-compile", runTestsSh.contains("UpdateInstall.kt") && runTestsSh.contains("UpdateDownloadReceiver.kt"),
         "run_tests.sh must compile UpdateInstall.kt and UpdateDownloadReceiver.kt")
+}
+
+fun pageLoadTests0936() {
+    // v0.9.3.6 (живой лог 21:45: страница за 30 с так и не загрузилась
+    // в фоновом WebView — onPageFinished не выстрелил, сканов не было,
+    // 0 кандидатов; перехват и прямой fetch тоже молчали, потому что
+    // scheduleRescan живёт только внутри onPageFinished).
+    // Чистые решения — настоящие JVM-проверки.
+    // 1. Fail-fast: ошибка есть, grace-период прошёл, кандидатов нет.
+    check("pageload-failfast-basic", CastEngine.shouldFailFastOnLoadError("код -2: net::ERR_NAME_NOT_RESOLVED", 1000L, 3000L, true),
+        "recorded load error older than grace with no candidates must fail fast")
+    // 2. Fail-fast: grace-период ещё не прошёл (редирект успевает
+    // отменить ошибку через onPageFinished).
+    check("pageload-failfast-grace", !CastEngine.shouldFailFastOnLoadError("код -2: net::ERR_NAME_NOT_RESOLVED", 1000L, 2999L, true),
+        "load error younger than grace must not fail fast yet")
+    // 3. Fail-fast: кандидаты уже есть — не убивать флоу из-за ошибки.
+    check("pageload-failfast-candidates", !CastEngine.shouldFailFastOnLoadError("код -2: net::ERR_NAME_NOT_RESOLVED", 1000L, 5000L, false),
+        "load error must not fail fast when candidates already exist")
+    // 4. Fail-fast: ошибки нет — ничего не делать.
+    check("pageload-failfast-noerror", !CastEngine.shouldFailFastOnLoadError(null, 0L, 5000L, true),
+        "no load error must not fail fast")
+    // 5. Прямой fetch по тикеру: граница 6 с после начала загрузки.
+    check("pageload-fetch-timing", CastEngine.shouldRunDirectFetchByTicker(false, 1000L, 7000L, true) &&
+        !CastEngine.shouldRunDirectFetchByTicker(false, 1000L, 6999L, true),
+        "ticker direct fetch must fire at >= 6 s after load start, not before")
+    // 6. Прямой fetch по тикеру: уже пробовали / есть кандидаты /
+    // загрузка не начиналась — не повторять.
+    check("pageload-fetch-guards", !CastEngine.shouldRunDirectFetchByTicker(true, 1000L, 9000L, true) &&
+        !CastEngine.shouldRunDirectFetchByTicker(false, 1000L, 9000L, false) &&
+        !CastEngine.shouldRunDirectFetchByTicker(false, 0L, 9000L, true),
+        "ticker direct fetch must be one-shot, only with no candidates and a started load")
+    // 7. Десктопный UA по тикеру: граница 10 с после начала загрузки.
+    check("pageload-desktop-timing", CastEngine.shouldReloadDesktopUaByTicker(false, 1000L, 11000L, true) &&
+        !CastEngine.shouldReloadDesktopUaByTicker(false, 1000L, 10999L, true),
+        "ticker desktop-UA reload must fire at >= 10 s after load start, not before")
+    // 8. Десктопный UA по тикеру: уже пробовали / есть кандидаты — нет.
+    check("pageload-desktop-guards", !CastEngine.shouldReloadDesktopUaByTicker(true, 1000L, 15000L, true) &&
+        !CastEngine.shouldReloadDesktopUaByTicker(false, 1000L, 15000L, false),
+        "ticker desktop-UA reload must be one-shot and only with no candidates")
+    // Проводка (source-text: вызовы Android framework на JVM не исполнить).
+    val engineSrc = File("app/src/main/java/com/alexey/aircast/CastEngine.kt").readText()
+    // 9. onReceivedError перехвачен: только главный фрейм, в лог —
+    // код + описание + URL; ERR_ABORTED редиректа — не ошибка.
+    check("pageload-received-error", engineSrc.contains("override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError)") &&
+        engineSrc.contains("if (!request.isForMainFrame) return") &&
+        engineSrc.contains("ошибка загрузки страницы: код") &&
+        engineSrc.contains("ERR_ABORTED"),
+        "WebViewClient must override onReceivedError for the main frame and log code + description + URL")
+    // 10. onReceivedHttpError перехвачен: только главный фрейм, в лог —
+    // HTTP-код + URL; в pageLoadError НЕ пишется (WebView может ещё
+    // дорешать страницу — челлендж/мета-рефреш).
+    check("pageload-http-error", engineSrc.contains("override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse)") &&
+        engineSrc.contains("HTTP-ошибка страницы: HTTP") &&
+        engineSrc.contains("errorResponse.statusCode"),
+        "WebViewClient must override onReceivedHttpError for the main frame and log the HTTP status + URL")
+    // 11. onPageFinished снимает ошибку загрузки (редирект/повтор).
+    check("pageload-finished-clears", engineSrc.contains("override fun onPageFinished(view: WebView, url: String)") &&
+        engineSrc.contains("pageLoadError = null"),
+        "onPageFinished must clear the recorded page load error")
+    // 12. checkTimeout: fail-fast вызывает onPageLoadFailed с честной
+    // причиной, а не таймаут «Видео не найдено».
+    check("pageload-checktimeout-failfast", engineSrc.contains("shouldFailFastOnLoadError(pageLoadError, pageLoadErrorAtMs, now, candidates.isEmpty())") &&
+        engineSrc.contains("listener.onPageLoadFailed(\"Страница не загрузилась: \$err\")"),
+        "checkTimeout must fail fast via onPageLoadFailed with the recorded error")
+    // 13. checkTimeout: тикерный fallback прямого fetch и десктопного
+    // UA — независимо от onPageFinished/ресканов.
+    check("pageload-checktimeout-ticker", engineSrc.contains("shouldRunDirectFetchByTicker(directHtmlTried, loadStartedAtMs, now, candidates.isEmpty())") &&
+        engineSrc.contains("shouldReloadDesktopUaByTicker(desktopUaTried, loadStartedAtMs, now, candidates.isEmpty())"),
+        "checkTimeout must drive direct fetch and desktop-UA reload by ticker, not only by rescans")
+    // 14. goToUrl ставит отметку начала загрузки и сбрасывает ошибку.
+    check("pageload-gotourl-marks", engineSrc.contains("loadStartedAtMs = System.currentTimeMillis()"),
+        "goToUrl must stamp loadStartedAtMs for the ticker fallback")
+    // 15. Listener: onPageLoadFailed есть, по умолчанию — как onError.
+    check("pageload-listener", engineSrc.contains("fun onPageLoadFailed(msg: String) { onError(msg) }"),
+        "Listener must declare onPageLoadFailed defaulting to onError")
+    // 16. Сервис: onPageLoadFailed — с «Поделиться логом».
+    val serviceSrc = File("app/src/main/java/com/alexey/aircast/CastService.kt").readText()
+    check("pageload-service-sharelog", serviceSrc.contains("override fun onPageLoadFailed(msg: String)") &&
+        serviceSrc.contains("endWithAction(msg, AutoCast.MODE_INSTRUCTION, shareLog = true)"),
+        "CastService.onPageLoadFailed must end with the share-log action")
 }

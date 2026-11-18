@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.webkit.CookieManager
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -71,6 +72,10 @@ class CastEngine(
         fun onPairingFailed(msg: String)
         /** Фатальная ошибка флоу (например, WebView не создался). */
         fun onError(msg: String)
+        /** v0.9.3.6: страница не загрузилась (ошибка WebView) — по
+         *  умолчанию как обычная ошибка; сервис показывает её с
+         *  «Поделиться логом». */
+        fun onPageLoadFailed(msg: String) { onError(msg) }
         /** v0.9.2: ошибка файлового флоу (открыть/прокси) — по
          *  умолчанию как обычная; сервис показывает её с
          *  «Поделиться логом». */
@@ -102,6 +107,18 @@ class CastEngine(
         const val MAX_LAUNCH_RESCHEDULES = 3
         /** Повторный JS-скан, пока ищем видео. */
         const val RESCAN_INTERVAL_MS = 3_000L
+        /** v0.9.3.6: grace-период после ошибки загрузки главной страницы —
+         *  fail-fast только если onPageFinished не отменил ошибку за это
+         *  время (редирект успевает: abort исходного запроса — не смерть
+         *  страницы). */
+        const val PAGE_LOAD_FAIL_GRACE_MS = 2_000L
+        /** v0.9.3.6: прямой fetch HTML по тикеру — через столько после
+         *  начала загрузки страницы, если onPageFinished не выстрелил
+         *  (срок — как у ресканов: 2-й рескан при интервале 3 с). */
+        const val DIRECT_FETCH_DELAY_MS = 6_000L
+        /** v0.9.3.6: десктопный UA по тикеру — через столько после начала
+         *  загрузки (срок — как у ресканов: 3-й рескан при интервале 3 с). */
+        const val DESKTOP_UA_DELAY_MS = 10_000L
         /** v0.9.3 (#5): общий дедлайн пробы скорости зеркал. */
         const val MIRROR_PROBE_DEADLINE_MS = 2_500L
         /** Окно авто-поиска ТВ по mDNS. */
@@ -169,6 +186,31 @@ class CastEngine(
             state == CastEngine.FlowState.LOADING_PAGE ||
             state == CastEngine.FlowState.SEARCHING_VIDEO ||
             state == CastEngine.FlowState.LAUNCHING
+
+        /**
+         * v0.9.3.6: fail-fast при ошибке загрузки главной страницы —
+         * чистое решение для JVM-тестов: ошибка записана, прошло
+         * >= grace-периода (редирект успел бы отменить её через
+         * onPageFinished), кандидатов нет.
+         */
+        fun shouldFailFastOnLoadError(error: String?, errorAtMs: Long, nowMs: Long, candidatesEmpty: Boolean): Boolean =
+            error != null && candidatesEmpty && nowMs - errorAtMs >= PAGE_LOAD_FAIL_GRACE_MS
+
+        /**
+         * v0.9.3.6: прямой fetch по тикеру — чистое решение: ещё не
+         * пробовали, страница грузится >= DIRECT_FETCH_DELAY_MS,
+         * кандидатов нет.
+         */
+        fun shouldRunDirectFetchByTicker(directTried: Boolean, loadStartedAtMs: Long, nowMs: Long, candidatesEmpty: Boolean): Boolean =
+            !directTried && candidatesEmpty && loadStartedAtMs > 0 && nowMs - loadStartedAtMs >= DIRECT_FETCH_DELAY_MS
+
+        /**
+         * v0.9.3.6: десктопный UA по тикеру — чистое решение: ещё не
+         * пробовали, страница грузится >= DESKTOP_UA_DELAY_MS,
+         * кандидатов нет.
+         */
+        fun shouldReloadDesktopUaByTicker(desktopTried: Boolean, loadStartedAtMs: Long, nowMs: Long, candidatesEmpty: Boolean): Boolean =
+            !desktopTried && candidatesEmpty && loadStartedAtMs > 0 && nowMs - loadStartedAtMs >= DESKTOP_UA_DELAY_MS
     }
 
     /** Состояние авто-флоу (один запуск share/открытия). */
@@ -199,6 +241,15 @@ class CastEngine(
     private var rescanCount: Int = 0
     private var directHtmlTried: Boolean = false
     private var desktopUaTried: Boolean = false
+    /** v0.9.3.6: ошибка загрузки главной страницы из onReceivedError
+     *  (текст для честного fail-fast) и когда она записана;
+     *  сбрасывается в onPageFinished и в resetFlow. */
+    private var pageLoadError: String? = null
+    private var pageLoadErrorAtMs: Long = 0L
+    /** v0.9.3.6: когда началась загрузка текущей страницы (goToUrl) —
+     *  тикерный fallback прямого fetch / десктопного UA не зависит
+     *  от onPageFinished. */
+    private var loadStartedAtMs: Long = 0L
     private var tickerRunnable: Runnable? = null
     private var tvCallback: (() -> Unit)? = null
     /** v0.9.2: fallback pre-check — что делать, если mDNS тоже
@@ -532,6 +583,10 @@ class CastEngine(
         // UA, иначе следующий флоу стартует с десктопным.
         rescanCount = 0
         directHtmlTried = false
+        // v0.9.3.6: ошибка загрузки и отметка начала загрузки — сбросить.
+        pageLoadError = null
+        pageLoadErrorAtMs = 0L
+        loadStartedAtMs = 0L
         if (desktopUaTried) {
             desktopUaTried = false
             try { webView?.settings?.userAgentString = MOBILE_UA } catch (ignored: Exception) {}
@@ -643,7 +698,35 @@ class CastEngine(
     private fun checkTimeout() {
         if (!autoArmed || launched) return
         if (flowState != FlowState.LOADING_PAGE && flowState != FlowState.SEARCHING_VIDEO) return
-        if (System.currentTimeMillis() < searchDeadlineMs) return
+        val now = System.currentTimeMillis()
+        // v0.9.3.6: fail-fast — главная страница отдала ошибку загрузки
+        // (onReceivedError), а onPageFinished не отменил её за
+        // grace-период. Честная причина вместо «Видео не найдено»
+        // через 30 с. В режиме предзагрузки — не трогаем.
+        if (!preloadMode && shouldFailFastOnLoadError(pageLoadError, pageLoadErrorAtMs, now, candidates.isEmpty())) {
+            stopTicker()
+            val err = pageLoadError ?: "неизвестная ошибка"
+            Log.add("browser", "страница не загрузилась, завершаю поиск: $err")
+            failFlow { listener.onPageLoadFailed("Страница не загрузилась: $err") }
+            return
+        }
+        // v0.9.3.6: прямой fetch и десктопный UA — по тикеру, а не
+        // только по ресканам: scheduleRescan() живёт внутри scanPageJs,
+        // а scanPageJs — внутри onPageFinished. Если страница зависла
+        // и onPageFinished не выстрелил, ресканы не идут вообще (лог
+        // 21:45: ни fetch, ни десктопного UA за 30 с). Сроки — как у
+        // ресканов при интервале 3 с. В предзагрузке — не трогаем.
+        if (!preloadMode && candidates.isEmpty()) {
+            if (shouldRunDirectFetchByTicker(directHtmlTried, loadStartedAtMs, now, candidates.isEmpty())) {
+                directHtmlTried = true
+                tryDirectHtmlFetch()
+            }
+            if (shouldReloadDesktopUaByTicker(desktopUaTried, loadStartedAtMs, now, candidates.isEmpty())) {
+                desktopUaTried = true
+                switchToDesktopUaAndReload()
+            }
+        }
+        if (now < searchDeadlineMs) return
         stopTicker()
         Log.add("share", "таймаут: видео не нашлось за 30 с (${candidates.size} канд.)")
         // v0.9.0: диагностика «не найдено» — в лог, чтобы по кнопке
@@ -680,7 +763,33 @@ class CastEngine(
                         else if (AudioCast.isAudioUrl(url)) addCandidate(url, "перехват сети", request.requestHeaders["Referer"], isAudio = true)
                         return null
                     }
+                    // v0.9.3.6: слепое место — раньше ошибка загрузки
+                    // страницы в логе не была видна вообще (лог 21:45:
+                    // 30 с тишины, «сканов пока не было»). Только
+                    // главная страница: ошибки iframe/картинок —
+                    // не смерть флоу. ERR_ABORTED при редиректе —
+                    // не ошибка: страницу всё равно ждём (onPageFinished
+                    // её отменит). HTTP-ошибки — только в лог: сервер
+                    // ответил, и WebView может ещё дорешать страницу
+                    // (например, Cloudflare-челлендж), а fail-fast по
+                    // ним дал бы ложные срабатывания.
+                    override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                        if (!request.isForMainFrame) return
+                        val desc = error.description.toString()
+                        Log.add("browser", "ошибка загрузки страницы: код ${error.errorCode}: $desc — ${request.url}")
+                        if (desc.contains("ERR_ABORTED", ignoreCase = true)) return
+                        pageLoadError = "код ${error.errorCode}: $desc"
+                        pageLoadErrorAtMs = System.currentTimeMillis()
+                    }
+                    override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                        if (!request.isForMainFrame) return
+                        Log.add("browser", "HTTP-ошибка страницы: HTTP ${errorResponse.statusCode} — ${request.url}")
+                    }
                     override fun onPageFinished(view: WebView, url: String) {
+                        // v0.9.3.6: страница всё же загрузилась — снять
+                        // ошибку (редирект/повтор после onReceivedError).
+                        pageLoadError = null
+                        pageLoadErrorAtMs = 0L
                         currentPageUrl = url
                         prefs.edit().putString("lastUrl", url).apply()
                         // v0.9.3 (#17): куки — на диск сразу после
@@ -756,6 +865,12 @@ class CastEngine(
         var url = raw.trim()
         if (!url.startsWith("http")) url = "https://$url"
         currentPageUrl = url
+        // v0.9.3.6: отметка начала загрузки + сброс ошибки прошлого
+        // перехода — для тикерного fallback (прямой fetch / десктопный
+        // UA не зависят от onPageFinished).
+        loadStartedAtMs = System.currentTimeMillis()
+        pageLoadError = null
+        pageLoadErrorAtMs = 0L
         wv.loadUrl(url)
         Log.add("browser", "переход: $url")
     }
